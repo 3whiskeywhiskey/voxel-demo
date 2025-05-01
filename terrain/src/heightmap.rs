@@ -15,11 +15,7 @@ pub struct HeightmapChunk {
 
 #[cfg(feature = "server")]
 #[reducer]
-pub fn on_heightmap_generated(ctx: &ReducerContext, coord: ChunkCoords, heights: Vec<f32>) -> Result<(), String> {
-    let chunk = HeightmapChunk {
-        coord,
-        heights,
-    };
+pub fn on_heightmap_generated(ctx: &ReducerContext, chunk: HeightmapChunk) -> Result<(), String> {
     ctx.db.heightmap_chunk().insert(chunk);
     Ok(())
 }
