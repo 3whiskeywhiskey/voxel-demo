@@ -1,0 +1,16 @@
+[package]
+name = "terrain"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+# default for the game client: no spacetime macros
+client = []
+# enable spacetime macros and derive for the server
+server = ["dep:spacetimedb"]
+#default = ["server"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+# only pulled in when `server` feature is enabled
+spacetimedb = { version = "1.1.1", optional = true }
