@@ -4,7 +4,7 @@ use spacetimedb::{table, reducer, ReducerContext, Table};
 
 use crate::terrain::coords::ChunkCoords;
 
-#[table(name = heightmap_chunk)]
+#[table(name = heightmap_chunk, public)]
 #[derive(Clone, Debug)]
 pub struct HeightmapChunk {
     #[primary_key]

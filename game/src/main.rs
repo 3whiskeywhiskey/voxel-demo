@@ -46,15 +46,15 @@ fn main() {
                 conn.run_threaded();
                 conn
             })
-            .with_events(|plugin, app, db, reducers| {
+            // .with_events(|plugin, app, db, reducers| {
             //     tables!(
             //         heightmap_chunk,
             //         mesh_chunk,
             //     );
-                reducers.on_heightmap_generated(move |ctx, chunk| {
-                    println!("Heightmap chunk inserted: {:?}", chunk.coord);
-                });
-            })
+                // reducers.on_heightmap_generated(move |ctx, chunk| {
+                //     println!("Heightmap chunk inserted: {:?}", chunk.coord);
+                // });
+            // })
         )
         .add_plugins(DefaultPlugins)
         .add_plugins(PlayerPlugin)
@@ -65,10 +65,18 @@ fn main() {
 
 fn on_connected(
     mut events: EventReader<StdbConnectedEvent>,
-    _stdb: Res<StdbConnection<DbConnection>>,  // your generated DbConnection type
+    stdb: Res<StdbConnection<DbConnection>>,  // your generated DbConnection type
 ) {
     for _ in events.read() {
         info!("Connected to SpacetimeDB; subscribing to heightmap_chunk");
+
+        stdb.subscribe()
+            .on_applied(|ctx| {
+                let count = ctx.db.heightmap_chunk().count();
+                info!("Initial heightmap chunk count: {}", count);
+            })
+            .on_error(|_, err| error!("Heightmap subscription error: {}", err))
+            .subscribe("SELECT * FROM heightmap_chunk");
     }
 }
 
