@@ -2,7 +2,6 @@
 
 use std::env;
 use std::process::Command;
-use std::fs;
 
 fn main() {
     // 1) Where is our server module on disk?
@@ -26,17 +25,6 @@ fn main() {
         panic!("spacetime codegen failed");
     }
 
-    // 4) Patch generated ChunkCoords derives to include Eq and Hash
-    let coords_file = format!("{}/chunk_coords_type.rs", out_dir);
-    let contents = std::fs::read_to_string(&coords_file)
-        .expect("Failed to read chunk_coords_type.rs");
-    let patched = contents.replace(
-        "#[derive(Clone, PartialEq, Debug)]",
-        "#[derive(Clone, PartialEq, Debug, Eq, Hash)]",
-    );
-    std::fs::write(&coords_file, patched)
-        .expect("Failed to write patched chunk_coords_type.rs");
-
-    // 5) Re-run codegen when any server-side schema changes
+    // 4) Re-run codegen when any server-side schema changes
     println!("cargo:rerun-if-changed={}/src", server_path);
 }

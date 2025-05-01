@@ -9,6 +9,5 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-terrain = { path = "../terrain", features = [ "server" ] }
 spacetimedb = "1.1.1"
 log = "0.4"

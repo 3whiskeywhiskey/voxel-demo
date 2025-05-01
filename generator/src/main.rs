@@ -11,10 +11,10 @@ use spacetimedb_sdk::Identity;
 use std::collections::HashMap;
 use std::f32::consts::PI;
 
-mod module_bindings;
+mod stdb;
 
-use module_bindings::{DbConnection, MeshChunk, ChunkCoords, HeightmapChunk, Vec3};
-use module_bindings::{on_heightmap_generated, on_mesh_generated};
+use stdb::{DbConnection, MeshChunk, ChunkCoords, HeightmapChunk, Vec3};
+use stdb::{on_heightmap_generated, on_mesh_generated};
 
 type MaterialId = u8;
 
