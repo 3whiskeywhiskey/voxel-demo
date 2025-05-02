@@ -2,8 +2,9 @@ use bevy::{
     input::mouse::MouseMotion,
     prelude::*,
     window::CursorGrabMode,
+    core_pipeline::Skybox,
 };
-use bevy::core_pipeline::Skybox;
+use bevy::pbr::Atmosphere;
 
 pub struct PlayerPlugin;
 
@@ -36,15 +37,22 @@ pub struct PlayerController;
 
 fn setup_player(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Load the skybox texture
-    let skybox_handle: Handle<Image> = asset_server.load("textures/skybox.ktx2"); 
+    // let metering_mask: Handle<Image> = asset_server.load("textures/basic_metering_mask.png");
+    let skybox_handle: Handle<Image> = asset_server.load("environment_maps/night.ktx2"); 
     
     commands.spawn((
         // Spawn Camera3d directly
         Camera3d::default(),
-        // Add Skybox component here
+        Camera {
+            hdr: true, // Atmosphere requires HDR
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        Atmosphere::EARTH,
         Skybox {
             image: skybox_handle.clone(),
-            brightness: 1000.0, // Adjust brightness as needed
+            brightness: 500.0, // Adjust brightness as needed
+            rotation: Quat::default(),
             ..default()
         },
         // Add our controller marker

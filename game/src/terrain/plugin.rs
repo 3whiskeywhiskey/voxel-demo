@@ -3,7 +3,7 @@ use bevy_spacetimedb::{InsertEvent, UpdateEvent};
 use crate::terrain::systems::{terrain_subscription_system, TerrainSubscription, on_heightmap_insert, on_heightmap_update};
 use crate::terrain::types::{MinimapConfig, MinimapImage};
 use crate::terrain::ui::setup_minimap_ui;
-use crate::terrain::types::{HeightmapChunk, ChunkCoords};
+use crate::terrain::types::HeightmapChunk;
 
 
 pub struct TerrainPlugin;
