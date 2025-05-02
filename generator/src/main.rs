@@ -20,10 +20,11 @@ type MaterialId = u8;
 
 async fn push_chunk(
     conn: &DbConnection,
-    chunk: HeightmapChunk,
+    coords: ChunkCoords,
+    heights: Vec<f32>,
 ) -> Result<(), spacetimedb_sdk::Error> {
     // call the reducer exposed by your module:
-    conn.reducers.on_heightmap_generated(chunk)
+    conn.reducers.on_heightmap_generated(coords, heights)
 }
 
 async fn push_mesh(
@@ -383,7 +384,7 @@ fn main() {
     // Load saved token if available
     let mut builder = DbConnection::builder()
         .with_uri("https://spacetime.whiskey.works")
-        .with_module_name("voxel-demo-backend");
+        .with_module_name("realm1");
     if let Some(token) = creds_store().load().ok() {
         builder = builder.with_token(token);
     }
@@ -412,13 +413,15 @@ fn main() {
 
             let height_chunk = HeightmapChunk {
                 coord: coord.clone(),
+                chunk_x: coord.x,
+                chunk_z: coord.z,
                 heights: heights.clone(),
             };
 
             // TODO: how do we parallelize these? silly to block on each sequentially innit?
 
             // Push to SpacetimeDB
-            block_on(push_chunk(&conn, height_chunk)).expect("Failed to push chunk");
+            block_on(push_chunk(&conn, height_chunk.coord, height_chunk.heights)).expect("Failed to push chunk");
 
             let mesh_chunk = mesh_generator.heightmap_to_blocky_mesh(coord.clone(), &heights);
             block_on(push_mesh(&conn, mesh_chunk.clone())).expect("Failed to push chunk");

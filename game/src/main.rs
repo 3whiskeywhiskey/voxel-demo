@@ -1,28 +1,30 @@
 use bevy::prelude::*;
-use spacetimedb_sdk::Table;
 
 #[allow(unused_imports)]
 use bevy_spacetimedb::{
-    ReadInsertEvent, ReadReducerEvent, ReducerResultEvent, StdbConnectedEvent, StdbConnection,
+    ReadInsertEvent, ReadUpdateEvent, ReadDeleteEvent,
+    ReadReducerEvent, ReducerResultEvent, StdbConnectedEvent, StdbConnection,
     StdbConnectionErrorEvent, StdbDisconnectedEvent, StdbPlugin, register_reducers, tables,
 };
 
 mod stdb;
 use stdb::{
     DbConnection,
-    // HeightmapChunk,
 };
-use crate::stdb::heightmap_chunk_table::HeightmapChunkTableAccess;
-// use crate::stdb::mesh_chunk_table::MeshChunkTableAccess;
+
+
 mod player;
 use player::PlayerPlugin;
+
+mod terrain;
+use terrain::TerrainPlugin;
 
 fn main() {
     App::new()
         .add_plugins(StdbPlugin::default()
             .with_connection(|send_connected, send_disconnected, send_connect_error, _| {
                 let conn = DbConnection::builder()
-                .with_module_name("voxel-demo-backend")
+                .with_module_name("realm1")
                 .with_uri("https://spacetime.whiskey.works")
                 .on_connect_error(move |_ctx, err| {
                     send_connect_error
@@ -46,18 +48,19 @@ fn main() {
                 conn.run_threaded();
                 conn
             })
-            // .with_events(|plugin, app, db, reducers| {
-            //     tables!(
-            //         heightmap_chunk,
-            //         mesh_chunk,
-            //     );
+            .with_events(|_plugin, _app, _db, _reducers| {
+                // tables!(
+                    // heightmap_chunk,
+                    // mesh_chunk,
+                // );
                 // reducers.on_heightmap_generated(move |ctx, chunk| {
                 //     println!("Heightmap chunk inserted: {:?}", chunk.coord);
                 // });
-            // })
+            })
         )
         .add_plugins(DefaultPlugins)
         .add_plugins(PlayerPlugin)
+        .add_plugins(TerrainPlugin)
         .add_systems(Startup, setup)
         .add_systems(Update, on_connected)
         .run();
@@ -65,18 +68,26 @@ fn main() {
 
 fn on_connected(
     mut events: EventReader<StdbConnectedEvent>,
-    stdb: Res<StdbConnection<DbConnection>>,  // your generated DbConnection type
+    _stdb: Res<StdbConnection<DbConnection>>,  // your generated DbConnection type
 ) {
     for _ in events.read() {
         info!("Connected to SpacetimeDB; subscribing to heightmap_chunk");
 
-        stdb.subscribe()
-            .on_applied(|ctx| {
-                let count = ctx.db.heightmap_chunk().count();
-                info!("Initial heightmap chunk count: {}", count);
-            })
-            .on_error(|_, err| error!("Heightmap subscription error: {}", err))
-            .subscribe("SELECT * FROM heightmap_chunk");
+        // stdb.subscribe()
+        //     .on_applied(|ctx| {
+        //         let count = ctx.db.heightmap_chunk().count();
+        //         info!("Initial heightmap chunk count: {}", count);
+        //     })
+        //     .on_error(|_, err| error!("Heightmap subscription error: {}", err))
+        //     .subscribe("SELECT * FROM heightmap_chunk");
+
+        // stdb.subscribe()
+        //     .on_applied(|ctx| {
+        //         let count = ctx.db.heightmap_chunk().count();
+        //         info!("Initial mesh chunk count: {}", count);
+        //     })
+        //     .on_error(|_, err| error!("Mesh subscription error: {}", err))
+        //     .subscribe("SELECT * FROM mesh_chunk");
     }
 }
 

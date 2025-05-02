@@ -5,7 +5,7 @@ use spacetimedb::{table, reducer, ReducerContext, Table};
 
 use crate::terrain::coords::{ChunkCoords, MaterialId, Vec3};
 
-#[table(name = mesh_chunk)]
+#[table(name = mesh_chunk, public)]
 pub struct MeshChunk {
     #[primary_key]
     pub coord: ChunkCoords,
