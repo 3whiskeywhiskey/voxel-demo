@@ -71,7 +71,7 @@ fn on_connected(
     _stdb: Res<StdbConnection<DbConnection>>,  // your generated DbConnection type
 ) {
     for _ in events.read() {
-        info!("Connected to SpacetimeDB; subscribing to heightmap_chunk");
+        info!("Connected to SpacetimeDB");
 
         // stdb.subscribe()
         //     .on_applied(|ctx| {

@@ -1,10 +1,12 @@
 use bevy::prelude::*;
 use spacetimedb_sdk::Table;
 use bevy_spacetimedb::{StdbConnectedEvent, StdbConnection};
-use crate::stdb::{DbConnection, SubscriptionHandle, ChunkCoords};
-use crate::stdb::heightmap_chunk_table::HeightmapChunkTableAccess;
+use bevy_spacetimedb::{ReadInsertEvent, ReadUpdateEvent};
 use spacetimedb_sdk::SubscriptionHandle as _SubscriptionHandleTrait;
+use crate::stdb::{SubscriptionHandle, DbConnection};
+use crate::stdb::heightmap_chunk_table::HeightmapChunkTableAccess;
 
+use crate::terrain::types::{HeightmapChunk, ChunkCoords};
 
 /// Radius in chunks for subscribing
 const SUB_RADIUS: i32 = 4;
@@ -12,28 +14,13 @@ const CHUNK_SIZE: i32 = 32;
 
 /// Holds the current heightmap subscription handle
 #[derive(Resource, Default)]
-struct TerrainSubscription {
+pub struct TerrainSubscription {
     handle: Option<SubscriptionHandle>,
     last_center: Option<ChunkCoords>,
 }
 
-pub struct TerrainPlugin;
-impl Plugin for TerrainPlugin {
-    fn build(&self, app: &mut App) {
-        app
-            // initialize the subscription resource
-            .init_resource::<TerrainSubscription>()
-            // subscribe once on connect and on boundary-cross
-            .add_systems(Update, terrain_subscription_system);
-            // handle new chunks
-            // .add_systems(Update, on_heightmap_chunk)
-            // handle chunk updates
-            // .add_systems(Update, on_heightmap_chunk_update);
-    }
-}
-
 /// System: subscribe to heightmap_chunk filtered by player position
-fn terrain_subscription_system(
+pub fn terrain_subscription_system(
     mut c_evt: EventReader<StdbConnectedEvent>,
     cam_q: Query<&Transform, With<Camera3d>>,
     stdb: Res<StdbConnection<DbConnection>>,
@@ -76,3 +63,19 @@ fn terrain_subscription_system(
         }
     }
 }
+
+pub fn on_heightmap_insert(
+    mut events: ReadInsertEvent<HeightmapChunk>,
+) {
+    for event in events.read() {
+        info!("Heightmap chunk inserted: {:?}", event.row.coord);
+    }
+}
+
+pub fn on_heightmap_update(
+    mut events: ReadUpdateEvent<HeightmapChunk>,
+) {
+    for event in events.read() {
+        info!("Heightmap chunk updated: {:?}", event.new.coord);
+    }
+} 
