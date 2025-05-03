@@ -64,7 +64,7 @@ fn setup_player(mut commands: Commands, asset_server: Res<AssetServer>) {
             clear_color: ClearColorConfig::None,
             ..default()
         },
-        Transform::from_xyz(-2.0, 5.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(0.0, 60.0, 0.0).looking_at(Vec3::new(10.0, 60.0, -10.0), Vec3::Y),
         GlobalTransform::default(),
         Atmosphere::EARTH,
         Skybox {
