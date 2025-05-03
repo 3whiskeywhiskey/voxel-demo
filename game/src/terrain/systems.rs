@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use bevy::render::mesh::{PrimitiveTopology, Mesh, Indices};
+use bevy::render::render_asset::RenderAssetUsages;
 
 use bevy_spacetimedb::{
     StdbConnectedEvent, StdbConnection,
@@ -14,6 +16,7 @@ use crate::stdb::{
     SubscriptionHandle, DbConnection,
     on_chunk_requested,
     chunk_table::ChunkTableAccess,
+    mesh_table::MeshTableAccess,
 };
 
 use colorgrad::{CustomGradient, Gradient};
@@ -37,7 +40,8 @@ const CHUNK_SIZE: i32 = 32;
 /// Holds the current heightmap subscription handle
 #[derive(Resource, Default)]
 pub struct TerrainSubscription {
-    handle: Option<SubscriptionHandle>,
+    chunk_handle: Option<SubscriptionHandle>,
+    mesh_handle: Option<SubscriptionHandle>,
     last_center: Option<ChunkCoords>,
 }
 
@@ -72,25 +76,39 @@ pub fn terrain_subscription_system(
             // compute bounds
             let (min_x, max_x) = (cx - SUB_RADIUS, cx + SUB_RADIUS);
             let (min_z, max_z) = (cz - SUB_RADIUS, cz + SUB_RADIUS);
-            let sql = format!(
-                "SELECT * FROM chunk WHERE chunk_x >= {} AND chunk_x <= {} AND chunk_z >= {} AND chunk_z <= {}",
+            let predicate = format!(
+                "WHERE chunk.chunk_x >= {} AND chunk.chunk_x <= {} AND chunk.chunk_z >= {} AND chunk.chunk_z <= {}",
                 min_x, max_x, min_z, max_z
             );
             // subscribe
-            let handle = stdb
+            let chunk_handle = stdb
                 .subscribe()
                 .on_applied(|ctx| {
                     info!("Subscribed to terrain: {} chunks", ctx.db.chunk().count());
                 })
                 .on_error(|_, e| error!("Terrain sub error: {}", e))
-                .subscribe(sql);
+                .subscribe(format!("SELECT * FROM chunk {}", predicate));
             
-            if let Some(h) = sub.handle.take() {
+            let mesh_handle = stdb
+                .subscribe()
+                .on_applied(|ctx| {
+                    info!("Subscribed to terrain meshes: {}", ctx.db.mesh().count());
+                })
+                .on_error(|_, e| error!("Terrain sub error: {}", e))
+                .subscribe(format!("SELECT mesh.* FROM mesh JOIN chunk ON mesh.id = chunk.mesh_id {}", predicate));
+
+            
+            if let Some(h) = sub.chunk_handle.take() {
+                let _ = h.unsubscribe();
+            }
+
+            if let Some(h) = sub.mesh_handle.take() {
                 let _ = h.unsubscribe();
             }
 
             // store state
-            sub.handle = Some(handle);
+            sub.chunk_handle = Some(chunk_handle);
+            sub.mesh_handle = Some(mesh_handle);
             sub.last_center = Some(center);
         }
     }
@@ -116,21 +134,39 @@ pub fn on_chunk_update(
     }
 }
 
+pub fn on_mesh_insert(
+    mut events: ReadInsertEvent<Mesh>,
+) {
+    for event in events.read() {
+        info!("Mesh inserted: {:?}", event.row);
+    }
+}
 
-pub fn render_heightmap(
+pub fn on_mesh_update(
+    mut events: ReadUpdateEvent<Mesh>,      
+) {
+    for event in events.read() {
+        info!("Mesh updated: {:?}", event.new);
+    }
+}
+
+pub fn render_terrain(
     minimap_q: Query<&MinimapUi>,
     sub: Res<TerrainSubscription>,
     minimap_config: Res<MinimapConfig>,
     gradient_res: Res<TerrainGradient>,
     stdb: Res<StdbConnection<DbConnection>>,
     mut dirty_chunks: ResMut<DirtyChunks>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
+    mut commands: Commands,
 ) {
     if dirty_chunks.is_empty() {
         return;
     }
 
-    // Acquire the UI texture handle
+    // Acquire the minimap texture handle
     let minimap_handle = minimap_q.single().unwrap().0.clone();
     let image = images.get_mut(&minimap_handle).unwrap();
     let data = image.data.as_mut().expect("Image data buffer missing");
@@ -143,20 +179,13 @@ pub fn render_heightmap(
     // Determine center chunk
     let center = sub.last_center.clone().unwrap_or(ChunkCoords { x: 0, z: 0 });
 
-    // the texture is 1056x1056, which is 11 chunks on a side.
-    // in the default spawn of 0,0,0, we'll iterate from x-radius to x+radius and z-radius to z+radius 
-
-    // info!("In render_heightmap (last_center: {:?}, radius: {}, chunk_size: {}, tex_size: {})", center, radius, chunk_size, tex_size);
-
     let min_x = center.x - radius;
     let max_x = center.x + radius;
     let min_z = center.z - radius;
     let max_z = center.z + radius;
 
-    // info!("center: {}, {}", center.x, center.z);
-    // info!("Min/max x/z: {}, {}, {}, {}", min_x, max_x, min_z, max_z);
-
     let table = stdb.db().chunk();
+    let mesh_table = stdb.db().mesh();
     let chunks_in_region: Vec<Chunk> = table
         .iter()
         .filter(|row| {
@@ -175,7 +204,57 @@ pub fn render_heightmap(
         // info!("Rendering heightmap for chunk: {:?}", chunk.coord);
 
         if let Some(coords) = dirty_chunks.pop_if_dirty(chunk.coord) {
-            // info!("Chunk found: {:?}", coords);
+            info!("Chunk found: {:?}", coords);
+            match mesh_table.id().find(&chunk.mesh_id) {
+                Some(chunk_mesh) => {
+                    info!("Mesh found: {:?}", chunk_mesh.id);
+                    // let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::MAIN_WORLD);
+                    // let positions = chunk_mesh.vertices
+                    //     .chunks_exact(3)
+                    //     .map(|c| [c[0], c[1], c[2]])
+                    //     .collect::<Vec<_>>();
+                    // mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+
+                    // let normals = chunk_mesh.normals
+                    //     .chunks_exact(3)
+                    //     .map(|c| [c[0], c[1], c[2]])
+                    //     .collect::<Vec<_>>();
+                    // mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+
+                    // mesh.insert_indices(Indices::U32(chunk_mesh.indices));
+
+                    // info!("Mesh vertices: {:?}", mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap().len());
+                    // info!("Mesh normals: {:?}", mesh.attribute(Mesh::ATTRIBUTE_NORMAL).unwrap().len());
+
+                    let mesh = Cuboid::new(1.0, 1.0, 1.0);
+
+                    let mesh_handle = meshes.add(mesh);
+                    let material_handle = materials.add(StandardMaterial {
+                        base_color: Srgba::hex("#ffd891").unwrap().into(),
+                        metallic: 0.5,
+                        perceptual_roughness: 0.5,
+                        ..default()
+                    });
+
+                    // we're already baking the world position into the mesh
+                    let transform = Transform::from_xyz(coords.x as f32 * CHUNK_SIZE as f32, 0.0, coords.z as f32 * CHUNK_SIZE as f32);
+
+                    info!("Spawning mesh {:?}", mesh_handle);
+                    info!("Mesh material: {:?}", material_handle);
+                    info!("Mesh transform: {:?}", transform);
+
+                    commands.spawn((
+                        Mesh3d(mesh_handle.clone()),
+                        MeshMaterial3d(material_handle.clone()),
+                        transform,
+                    ));
+                }
+                None => {
+                    dirty_chunks.schedule_retry(coords.clone(), 1.0);
+                    info!("No mesh found for chunk: {:?}", coords);
+                }
+            }
+
 
             // Generate RGBA bytes functionally, then write each row in one go.
             let pixel_bytes: Vec<u8> = chunk.heights
@@ -193,6 +272,7 @@ pub fn render_heightmap(
                 })
                 .collect();
 
+            
 
             // Calculate the offset to center the chunk on the texture
             let offset_x = ((coords.x - center.x) * chunk_size as i32) + (tex_size as i32 - chunk_size as i32) / 2;
@@ -225,7 +305,7 @@ pub fn render_heightmap(
             info!("Leftover dirty chunk, requesting: {:?}", chunk);
             let res = conn.reducers.on_chunk_requested(chunk);
             if let Err(e) = res {
-                error!("Error requesting heightmap: {:?}", e);
+                error!("Error requesting chunk: {:?}", e);
             }
         }
         

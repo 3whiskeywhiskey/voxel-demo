@@ -164,7 +164,7 @@ fn setup_ui(mut commands: Commands, _asset_server: Res<AssetServer>) {
                         Node {
                             ..default()
                         },
-                        Text::new("WASD - Move  |  Space/Shift - Up/Down  |  Esc - Toggle Mouse"),
+                        Text::new("WASD - Move  |  Space/Ctrl - Up/Down  |  Esc - Toggle Mouse"),
                         TextColor(Color::WHITE),
                     ));
                 });
@@ -212,7 +212,7 @@ fn player_move(
     if keyboard_input.pressed(KeyCode::Space) {
         direction += Vec3::Y;
     }
-    if keyboard_input.pressed(KeyCode::ShiftLeft) || keyboard_input.pressed(KeyCode::ShiftRight) {
+    if keyboard_input.pressed(KeyCode::ControlLeft) || keyboard_input.pressed(KeyCode::ControlRight) {
         direction += Vec3::NEG_Y;
     }
 

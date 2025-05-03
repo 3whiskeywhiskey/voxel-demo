@@ -10,7 +10,12 @@ use once_cell::sync::OnceCell;
 static HEIGHTMAP_GENERATOR: OnceCell<HeightmapGenerator> = OnceCell::new();
 static MESH_GENERATOR: OnceCell<MeshGenerator> = OnceCell::new();
 
-#[table(name = chunk, index(name = idx_chunk_xz, btree(columns = [chunk_x, chunk_z])), public)]
+#[table(
+    name = chunk, 
+    index(name = idx_chunk_xz, btree(columns = [chunk_x, chunk_z])), 
+    index(name = idx_mesh_id, btree(columns = [mesh_id])),
+    public
+)]
 #[derive(Clone, Debug)]
 pub struct Chunk {
     #[primary_key]

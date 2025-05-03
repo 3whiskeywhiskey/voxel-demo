@@ -9,7 +9,7 @@ use crate::terrain::{
         TerrainSubscription, 
         terrain_subscription_system, 
         on_chunk_insert, on_chunk_update, 
-        render_heightmap, setup_minimap_gradient
+        render_terrain, setup_minimap_gradient
     },
 };
 
@@ -39,7 +39,7 @@ impl Plugin for TerrainPlugin {
                 terrain_subscription_system,
                 on_chunk_insert,
                 on_chunk_update,
-                render_heightmap,
+                render_terrain,
                 dirtychunks_tick_system,
                 // systems::update_minimap_arrow,
             ),
