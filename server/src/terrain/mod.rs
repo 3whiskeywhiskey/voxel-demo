@@ -1,5 +1,7 @@
 pub mod coords;
-pub mod mesh;
+pub mod chunk;
 pub mod material;
 pub mod generator;
-pub mod chunk;
+
+pub use chunk::Chunk;
+pub use coords::ChunkCoords;

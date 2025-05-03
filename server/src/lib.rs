@@ -1,6 +1,7 @@
 use spacetimedb::{reducer, ReducerContext};
 
 pub mod terrain;
+pub mod entity;
 
 #[reducer(init)]
 pub fn init(_ctx: &ReducerContext) {
