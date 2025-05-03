@@ -10,6 +10,16 @@ pub struct ChunkCoords {
     pub z: i32,
 }
 
+impl ChunkCoords {
+    pub fn to_world_pos(&self, local_x: usize, local_z: usize) -> Vec3 {
+        Vec3 {
+            x: (self.x * CHUNK_SIZE as i32 + local_x as i32) as f32,
+            y: 0.0,
+            z: (self.z * CHUNK_SIZE as i32 + local_z as i32) as f32,
+        }
+    }
+}
+
 /// A 3D vector.
 #[derive(SpacetimeType)]
 #[derive(Clone, Copy, Debug)]

@@ -3,6 +3,11 @@
 use spacetimedb::{table, reducer, ReducerContext, Table};
 
 use crate::terrain::coords::ChunkCoords;
+use crate::terrain::generator::HeightmapGenerator;
+use once_cell::sync::OnceCell;
+
+static HEIGHTMAP_GENERATOR: OnceCell<HeightmapGenerator> = OnceCell::new();
+
 
 #[table(name = heightmap_chunk, index(name = idx_chunk_xz, btree(columns = [chunk_x, chunk_z])), public)]
 #[derive(Clone, Debug)]
@@ -17,12 +22,15 @@ pub struct HeightmapChunk {
 }
 
 #[reducer]
-pub fn on_heightmap_generated(
+pub fn on_heightmap_requested(
     ctx: &ReducerContext,
     coord: ChunkCoords,
-    heights: Vec<f32>,
 ) -> Result<(), String> {
     let table = ctx.db.heightmap_chunk();
+
+    let heights =  HEIGHTMAP_GENERATOR
+        .get_or_init(|| HeightmapGenerator::new(42))
+        .generate_chunk(coord);
 
     let chunk = HeightmapChunk {
         coord,
@@ -33,8 +41,7 @@ pub fn on_heightmap_generated(
 
     match table.try_insert(chunk.clone()) {
         // Insert succeeded (new chunk)
-        Ok(_inserted_chunk) => Ok(()),
-
+        Ok(_) => Ok(()),
         Err(_) => {
             // Chunk already existed—overwrite via update (panics on failure)
             table.coord().update(chunk);
@@ -42,3 +49,5 @@ pub fn on_heightmap_generated(
         }
     }
 }
+
+
