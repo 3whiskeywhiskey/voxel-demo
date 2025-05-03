@@ -8,19 +8,13 @@ use bevy_spacetimedb::{
 };
 
 mod stdb;
-use stdb::{
-    DbConnection,
-};
+use stdb::DbConnection;
 
 mod player;
 use player::PlayerPlugin;
 
 mod terrain;
-use terrain::{
-    TerrainPlugin,
-    types::ChunkCoords,
-    dirtychunks::DirtyChunks,
-};
+use terrain::TerrainPlugin;
 
 fn main() {
     App::new()

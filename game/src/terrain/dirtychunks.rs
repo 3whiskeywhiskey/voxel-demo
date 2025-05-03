@@ -23,7 +23,7 @@ impl DirtyChunks {
 
     /// Mark a single chunk dirty
     pub fn mark_dirty(&mut self, coord: ChunkCoords) {
-        info!("Marking chunk {:?} as dirty", coord);
+        // info!("Marking chunk {:?} as dirty", coord);
         self.set.insert(coord);
     }
 

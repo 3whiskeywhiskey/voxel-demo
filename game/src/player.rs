@@ -175,7 +175,7 @@ fn update_position_text(
     mut query: Query<&mut Text, With<PositionText>>,
     camera_query: Query<&Transform, With<PlayerController>>,
 ) {
-    if let (Ok(mut text), Ok(transform)) = (query.get_single_mut(), camera_query.get_single()) {
+    if let (Ok(mut text), Ok(transform)) = (query.single_mut(), camera_query.single()) {
         text.0 = format!(
             "Position: ({:.1}, {:.1}, {:.1})",
             transform.translation.x,

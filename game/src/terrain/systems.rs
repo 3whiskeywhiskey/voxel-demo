@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy::log::warn;
 
 use bevy_spacetimedb::{
     StdbConnectedEvent, StdbConnection,

@@ -75,18 +75,18 @@ pub fn setup_minimap_ui(
 }
 
 // Add a system to handle minimap scaling
-pub fn update_minimap_scale(
-    windows: Query<&Window>,
-    mut minimap_query: Query<&mut Node, With<MinimapUi>>,
-    cfg: Res<MinimapConfig>,
-) {
-    if let Ok(window) = windows.get_single() {
-        let min_dimension = window.width().min(window.height());
-        let scale = min_dimension / cfg.texture_size as f32; // Base scale on original texture size
+// pub fn update_minimap_scale(
+//     windows: Query<&Window>,
+//     mut minimap_query: Query<&mut Node, With<MinimapUi>>,
+//     cfg: Res<MinimapConfig>,
+// ) {
+//     if let Ok(window) = windows.single() {
+//         let min_dimension = window.width().min(window.height());
+//         let scale = min_dimension / cfg.texture_size as f32; // Base scale on original texture size
         
-        if let Ok(mut node) = minimap_query.get_single_mut() {
-            node.width = Val::Px(200.0 * scale);
-            node.height = Val::Px(200.0 * scale);
-        }
-    }
-}
+//         if let Ok(mut node) = minimap_query.single_mut() {
+//             node.width = Val::Px(200.0 * scale);
+//             node.height = Val::Px(200.0 * scale);
+//         }
+//     }
+// }
