@@ -1,4 +1,4 @@
-// src/heightmap.rs
+// src/chunk.rs
 
 use spacetimedb::{table, reducer, ReducerContext, Table};
 
@@ -9,9 +9,9 @@ use once_cell::sync::OnceCell;
 static HEIGHTMAP_GENERATOR: OnceCell<HeightmapGenerator> = OnceCell::new();
 
 
-#[table(name = heightmap_chunk, index(name = idx_chunk_xz, btree(columns = [chunk_x, chunk_z])), public)]
+#[table(name = chunk, index(name = idx_chunk_xz, btree(columns = [chunk_x, chunk_z])), public)]
 #[derive(Clone, Debug)]
-pub struct HeightmapChunk {
+pub struct Chunk {
     #[primary_key]
     pub coord: ChunkCoords,
 
@@ -22,17 +22,17 @@ pub struct HeightmapChunk {
 }
 
 #[reducer]
-pub fn on_heightmap_requested(
+pub fn on_chunk_requested(
     ctx: &ReducerContext,
     coord: ChunkCoords,
 ) -> Result<(), String> {
-    let table = ctx.db.heightmap_chunk();
+    let table = ctx.db.chunk();
 
     let heights =  HEIGHTMAP_GENERATOR
         .get_or_init(|| HeightmapGenerator::new(42))
         .generate_chunk(coord);
 
-    let chunk = HeightmapChunk {
+    let chunk = Chunk {
         coord,
         chunk_x: coord.x,
         chunk_z: coord.z,

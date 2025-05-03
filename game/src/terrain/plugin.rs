@@ -1,14 +1,14 @@
 use bevy::prelude::*;
 use bevy_spacetimedb::{InsertEvent, UpdateEvent};
 use crate::terrain::{
-    types::HeightmapChunk,
+    types::Chunk,
     ui::setup_minimap_ui,
     types::{MinimapConfig, MinimapImage},
     dirtychunks::{DirtyChunks, dirtychunks_tick_system},
     systems::{
         TerrainSubscription, 
         terrain_subscription_system, 
-        on_heightmap_insert, on_heightmap_update, 
+        on_chunk_insert, on_chunk_update, 
         render_heightmap, setup_minimap_gradient
     },
 };
@@ -26,8 +26,8 @@ impl Plugin for TerrainPlugin {
         .init_resource::<TerrainSubscription>()
         .init_resource::<MinimapImage>()
 
-        .add_event::<InsertEvent<HeightmapChunk>>()
-        .add_event::<UpdateEvent<HeightmapChunk>>()
+        .add_event::<InsertEvent<Chunk>>()
+        .add_event::<UpdateEvent<Chunk>>()
 
         // UI setup
         .add_systems(Startup, (setup_minimap_ui, setup_minimap_gradient))
@@ -37,8 +37,8 @@ impl Plugin for TerrainPlugin {
             Update,
             (
                 terrain_subscription_system,
-                on_heightmap_insert,
-                on_heightmap_update,
+                on_chunk_insert,
+                on_chunk_update,
                 render_heightmap,
                 dirtychunks_tick_system,
                 // systems::update_minimap_arrow,

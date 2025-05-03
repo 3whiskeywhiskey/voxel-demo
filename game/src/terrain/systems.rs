@@ -12,15 +12,15 @@ use spacetimedb_sdk::{
 
 use crate::stdb::{
     SubscriptionHandle, DbConnection,
-    on_heightmap_requested,
-    heightmap_chunk_table::HeightmapChunkTableAccess,
+    on_chunk_requested,
+    chunk_table::ChunkTableAccess,
 };
 
 use colorgrad::{CustomGradient, Gradient};
 
 use crate::terrain::{
     types::{
-        HeightmapChunk, ChunkCoords, MinimapUi, MinimapConfig
+        Chunk, ChunkCoords, MinimapUi, MinimapConfig
     },
     dirtychunks::DirtyChunks,
 };
@@ -73,14 +73,14 @@ pub fn terrain_subscription_system(
             let (min_x, max_x) = (cx - SUB_RADIUS, cx + SUB_RADIUS);
             let (min_z, max_z) = (cz - SUB_RADIUS, cz + SUB_RADIUS);
             let sql = format!(
-                "SELECT * FROM heightmap_chunk WHERE chunk_x >= {} AND chunk_x <= {} AND chunk_z >= {} AND chunk_z <= {}",
+                "SELECT * FROM chunk WHERE chunk_x >= {} AND chunk_x <= {} AND chunk_z >= {} AND chunk_z <= {}",
                 min_x, max_x, min_z, max_z
             );
             // subscribe
             let handle = stdb
                 .subscribe()
                 .on_applied(|ctx| {
-                    info!("Subscribed to terrain: {} chunks", ctx.db.heightmap_chunk().count());
+                    info!("Subscribed to terrain: {} chunks", ctx.db.chunk().count());
                 })
                 .on_error(|_, e| error!("Terrain sub error: {}", e))
                 .subscribe(sql);
@@ -96,22 +96,22 @@ pub fn terrain_subscription_system(
     }
 }
 
-pub fn on_heightmap_insert(
-    mut events: ReadInsertEvent<HeightmapChunk>,
+pub fn on_chunk_insert(
+    mut events: ReadInsertEvent<Chunk>,
     mut dirty_chunks: ResMut<DirtyChunks>,
 ) {
     for event in events.read() {
-        info!("Heightmap chunk inserted: {:?}   Marking dirty", event.row.coord);
+        info!("Chunk inserted: {:?}   Marking dirty", event.row.coord);
         dirty_chunks.mark_dirty(event.row.coord.clone());
     }
 }
 
-pub fn on_heightmap_update(
-    mut events: ReadUpdateEvent<HeightmapChunk>,
+pub fn on_chunk_update(
+    mut events: ReadUpdateEvent<Chunk>,
     mut dirty_chunks: ResMut<DirtyChunks>,
 ) {
     for event in events.read() {
-        info!("Heightmap chunk updated: {:?}   Marking dirty", event.new.coord);
+        info!("Chunk updated: {:?}   Marking dirty", event.new.coord);
         dirty_chunks.mark_dirty(event.new.coord.clone());
     }
 }
@@ -156,8 +156,8 @@ pub fn render_heightmap(
     // info!("center: {}, {}", center.x, center.z);
     // info!("Min/max x/z: {}, {}, {}, {}", min_x, max_x, min_z, max_z);
 
-    let table = stdb.db().heightmap_chunk();
-    let chunks_in_region: Vec<HeightmapChunk> = table
+    let table = stdb.db().chunk();
+    let chunks_in_region: Vec<Chunk> = table
         .iter()
         .filter(|row| {
             let x = row.coord.x;
@@ -223,7 +223,7 @@ pub fn render_heightmap(
         while let Some(chunk) = dirty_chunks.pop_dirty() {
             dirty_chunks.schedule_retry(chunk.clone(), 0.5);
             info!("Leftover dirty chunk, requesting: {:?}", chunk);
-            let res = conn.reducers.on_heightmap_requested(chunk);
+            let res = conn.reducers.on_chunk_requested(chunk);
             if let Err(e) = res {
                 error!("Error requesting heightmap: {:?}", e);
             }

@@ -13,8 +13,8 @@ use std::f32::consts::PI;
 
 mod stdb;
 
-use stdb::{DbConnection, MeshChunk, ChunkCoords, HeightmapChunk, Vec3};
-use stdb::{on_heightmap_requested, on_mesh_generated};
+use stdb::{DbConnection, MeshChunk, ChunkCoords, Chunk, Vec3};
+use stdb::{on_chunk_requested, on_mesh_generated};
 
 type MaterialId = u8;
 
@@ -23,7 +23,7 @@ async fn push_chunk(
     coords: ChunkCoords,
 ) -> Result<(), spacetimedb_sdk::Error> {
     // call the reducer exposed by your module:
-    conn.reducers.on_heightmap_requested(coords)
+    conn.reducers.on_chunk_requested(coords)
 }
 
 async fn push_mesh(
@@ -410,7 +410,7 @@ fn main() {
             let heights = generator.generate_chunk(coord.clone());
             log::info!("Generated chunk at ({}, {})", x, z);
 
-            let height_chunk = HeightmapChunk {
+            let height_chunk = Chunk {
                 coord: coord.clone(),
                 chunk_x: coord.x,
                 chunk_z: coord.z,
