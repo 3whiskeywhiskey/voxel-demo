@@ -14,17 +14,16 @@ use std::f32::consts::PI;
 mod stdb;
 
 use stdb::{DbConnection, MeshChunk, ChunkCoords, HeightmapChunk, Vec3};
-use stdb::{on_heightmap_generated, on_mesh_generated};
+use stdb::{on_heightmap_requested, on_mesh_generated};
 
 type MaterialId = u8;
 
 async fn push_chunk(
     conn: &DbConnection,
     coords: ChunkCoords,
-    heights: Vec<f32>,
 ) -> Result<(), spacetimedb_sdk::Error> {
     // call the reducer exposed by your module:
-    conn.reducers.on_heightmap_generated(coords, heights)
+    conn.reducers.on_heightmap_requested(coords)
 }
 
 async fn push_mesh(
@@ -421,7 +420,7 @@ fn main() {
             // TODO: how do we parallelize these? silly to block on each sequentially innit?
 
             // Push to SpacetimeDB
-            block_on(push_chunk(&conn, height_chunk.coord, height_chunk.heights)).expect("Failed to push chunk");
+            block_on(push_chunk(&conn, height_chunk.coord)).expect("Failed to push chunk");
 
             let mesh_chunk = mesh_generator.heightmap_to_blocky_mesh(coord.clone(), &heights);
             block_on(push_mesh(&conn, mesh_chunk.clone())).expect("Failed to push chunk");

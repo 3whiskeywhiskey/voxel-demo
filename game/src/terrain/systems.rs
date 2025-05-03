@@ -12,6 +12,7 @@ use spacetimedb_sdk::{
 
 use crate::stdb::{
     SubscriptionHandle, DbConnection,
+    on_heightmap_requested,
     heightmap_chunk_table::HeightmapChunkTableAccess,
 };
 
@@ -145,15 +146,15 @@ pub fn render_heightmap(
     // the texture is 1056x1056, which is 11 chunks on a side.
     // in the default spawn of 0,0,0, we'll iterate from x-radius to x+radius and z-radius to z+radius 
 
-    info!("In render_heightmap (last_center: {:?}, radius: {}, chunk_size: {}, tex_size: {})", center, radius, chunk_size, tex_size);
+    // info!("In render_heightmap (last_center: {:?}, radius: {}, chunk_size: {}, tex_size: {})", center, radius, chunk_size, tex_size);
 
     let min_x = center.x - radius;
     let max_x = center.x + radius;
     let min_z = center.z - radius;
     let max_z = center.z + radius;
 
-    info!("center: {}, {}", center.x, center.z);
-    info!("Min/max x/z: {}, {}, {}, {}", min_x, max_x, min_z, max_z);
+    // info!("center: {}, {}", center.x, center.z);
+    // info!("Min/max x/z: {}, {}, {}, {}", min_x, max_x, min_z, max_z);
 
     let table = stdb.db().heightmap_chunk();
     let chunks_in_region: Vec<HeightmapChunk> = table
@@ -215,8 +216,19 @@ pub fn render_heightmap(
                         info!("Skipping copy of row {}: ({},{})", row_z, dest_x, dest_z);
                     }
                 });
+            }
         }
-    }
+
+        let conn = stdb.conn();
+        while let Some(chunk) = dirty_chunks.pop_dirty() {
+            dirty_chunks.schedule_retry(chunk.clone(), 0.5);
+            info!("Leftover dirty chunk, requesting: {:?}", chunk);
+            let res = conn.reducers.on_heightmap_requested(chunk);
+            if let Err(e) = res {
+                error!("Error requesting heightmap: {:?}", e);
+            }
+        }
+        
 }
 
 
