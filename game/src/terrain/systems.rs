@@ -1,15 +1,37 @@
 use bevy::prelude::*;
-use spacetimedb_sdk::Table;
-use bevy_spacetimedb::{StdbConnectedEvent, StdbConnection};
-use bevy_spacetimedb::{ReadInsertEvent, ReadUpdateEvent};
-use spacetimedb_sdk::SubscriptionHandle as _SubscriptionHandleTrait;
-use crate::stdb::{SubscriptionHandle, DbConnection};
-use crate::stdb::heightmap_chunk_table::HeightmapChunkTableAccess;
+use bevy::log::warn;
 
-use crate::terrain::types::{HeightmapChunk, ChunkCoords};
+use bevy_spacetimedb::{
+    StdbConnectedEvent, StdbConnection,
+    ReadInsertEvent, ReadUpdateEvent,
+};
+
+use spacetimedb_sdk::{
+    Table,
+    SubscriptionHandle as _SubscriptionHandleTrait,
+};
+
+use crate::stdb::{
+    SubscriptionHandle, DbConnection,
+    heightmap_chunk_table::HeightmapChunkTableAccess,
+};
+
+use colorgrad::{CustomGradient, Gradient};
+
+use crate::terrain::{
+    types::{
+        HeightmapChunk, ChunkCoords, MinimapUi, MinimapConfig
+    },
+    dirtychunks::DirtyChunks,
+};
+
+#[derive(Resource)]
+pub struct TerrainGradient(pub Gradient);
+
+const HEIGHT_RANGE: f32 = 64.0;
 
 /// Radius in chunks for subscribing
-const SUB_RADIUS: i32 = 4;
+const SUB_RADIUS: i32 = 10;
 const CHUNK_SIZE: i32 = 32;
 
 /// Holds the current heightmap subscription handle
@@ -25,17 +47,27 @@ pub fn terrain_subscription_system(
     cam_q: Query<&Transform, With<Camera3d>>,
     stdb: Res<StdbConnection<DbConnection>>,
     mut sub: ResMut<TerrainSubscription>,
+    mut dirty_chunks: ResMut<DirtyChunks>,
 ) {
     // if connected or moved across chunk boundary
     let reconnect = c_evt.read().next().is_some();
+
     if let Ok(transform) = cam_q.single() {
         let cx = (transform.translation.x / CHUNK_SIZE as f32).floor() as i32;
         let cz = (transform.translation.z / CHUNK_SIZE as f32).floor() as i32;
         let center = ChunkCoords { x: cx, z: cz };
+
+        if reconnect {
+            // we don't want to do this on chunk change, only on connection
+            dirty_chunks.populate_radius(center.clone());
+            // dirty_chunks.mark_dirty(ChunkCoords { x: 5, z: -4 });
+        }
+
         let changed = reconnect || sub.last_center.clone().map_or(true, |c| c != center);
         if changed {
             // as per spacetime docs, we should subscribe before unsubscribing
             // "This is because SpacetimeDB subscriptions are zero-copy. Subscribing to the same query more than once doesn't incur additional processing or serialization overhead."
+            dirty_chunks.populate_radius(center.clone());
 
             // compute bounds
             let (min_x, max_x) = (cx - SUB_RADIUS, cx + SUB_RADIUS);
@@ -66,16 +98,141 @@ pub fn terrain_subscription_system(
 
 pub fn on_heightmap_insert(
     mut events: ReadInsertEvent<HeightmapChunk>,
+    mut dirty_chunks: ResMut<DirtyChunks>,
 ) {
     for event in events.read() {
-        info!("Heightmap chunk inserted: {:?}", event.row.coord);
+        info!("Heightmap chunk inserted: {:?}   Marking dirty", event.row.coord);
+        dirty_chunks.mark_dirty(event.row.coord.clone());
     }
 }
 
 pub fn on_heightmap_update(
     mut events: ReadUpdateEvent<HeightmapChunk>,
+    mut dirty_chunks: ResMut<DirtyChunks>,
 ) {
     for event in events.read() {
-        info!("Heightmap chunk updated: {:?}", event.new.coord);
+        info!("Heightmap chunk updated: {:?}   Marking dirty", event.new.coord);
+        dirty_chunks.mark_dirty(event.new.coord.clone());
     }
-} 
+}
+
+
+pub fn render_heightmap(
+    minimap_q: Query<&MinimapUi>,
+    sub: Res<TerrainSubscription>,
+    minimap_config: Res<MinimapConfig>,
+    gradient_res: Res<TerrainGradient>,
+    stdb: Res<StdbConnection<DbConnection>>,
+    mut dirty_chunks: ResMut<DirtyChunks>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    if dirty_chunks.is_empty() {
+        return;
+    }
+
+    // Acquire the UI texture handle
+    let minimap_handle = minimap_q.single().unwrap().0.clone();
+    let image = images.get_mut(&minimap_handle).unwrap();
+    let data = image.data.as_mut().expect("Image data buffer missing");
+
+    // Compute texture grid parameters
+    let radius = minimap_config.radius as i32;
+    let chunk_size = minimap_config.chunk_size;
+    let tex_size = minimap_config.texture_size;
+
+    // Determine center chunk
+    let center = sub.last_center.clone().unwrap_or(ChunkCoords { x: 0, z: 0 });
+
+    // the texture is 1056x1056, which is 11 chunks on a side.
+    // in the default spawn of 0,0,0, we'll iterate from x-radius to x+radius and z-radius to z+radius 
+
+    info!("In render_heightmap (last_center: {:?}, radius: {}, chunk_size: {}, tex_size: {})", center, radius, chunk_size, tex_size);
+
+    let min_x = center.x - radius;
+    let max_x = center.x + radius;
+    let min_z = center.z - radius;
+    let max_z = center.z + radius;
+
+    info!("center: {}, {}", center.x, center.z);
+    info!("Min/max x/z: {}, {}, {}, {}", min_x, max_x, min_z, max_z);
+
+    let table = stdb.db().heightmap_chunk();
+    let chunks_in_region: Vec<HeightmapChunk> = table
+        .iter()
+        .filter(|row| {
+            let x = row.coord.x;
+            let z = row.coord.z;
+            x >= min_x && x <= max_x && z >= min_z && z <= max_z
+        })
+        .collect();
+
+    let mut sorted = chunks_in_region.clone();
+    sorted.sort_by_key(|c| (c.coord.x, c.coord.z));
+
+    // Now you have all chunks in that 2D box:
+    for chunk in sorted {
+        // do whatever you need with each chunk
+        // info!("Rendering heightmap for chunk: {:?}", chunk.coord);
+
+        if let Some(coords) = dirty_chunks.pop_if_dirty(chunk.coord) {
+            // info!("Chunk found: {:?}", coords);
+
+            // Generate RGBA bytes functionally, then write each row in one go.
+            let pixel_bytes: Vec<u8> = chunk.heights
+                .iter()
+                .flat_map(|&height| {
+                    let normalized = (height / HEIGHT_RANGE).clamp(0.0, 1.0) as f64;
+                    let color = gradient_res.0.at(normalized);
+                    // Expand into an array, which IntoIterator flattens
+                    [
+                        (color.r * 255.0) as u8,
+                        (color.g * 255.0) as u8,
+                        (color.b * 255.0) as u8,
+                        255u8,
+                    ]
+                })
+                .collect();
+
+
+            // Calculate the offset to center the chunk on the texture
+            let offset_x = ((coords.x - center.x) * chunk_size as i32) + (tex_size as i32 - chunk_size as i32) / 2;
+            let offset_z = ((coords.z - center.z) * chunk_size as i32) + (tex_size as i32 - chunk_size as i32) / 2;
+
+            // info!("Offset x/z: {}, {}", offset_x, offset_z);
+
+            // Copy each row slice into the image buffer with consistent usize indexing
+            let row_stride = (chunk_size * 4) as usize;
+            pixel_bytes
+                .chunks(row_stride)
+                .enumerate()
+                .for_each(|(row_z, row_bytes)| {
+                    let dest_z = (offset_z + row_z as i32) as usize;
+                    let dest_x = (offset_x)  as usize;
+                    if dest_z < tex_size as usize && dest_x < tex_size as usize {
+                        let dest = (dest_z * tex_size as usize + dest_x) * 4;
+                        // info!("Copying row {} to dest: ({},{}) {}", row_z, dest_x, dest_z, dest);
+                        data[dest..dest + row_bytes.len()].copy_from_slice(row_bytes);
+                    } else {
+                        info!("Skipping copy of row {}: ({},{})", row_z, dest_x, dest_z);
+                    }
+                });
+        }
+    }
+}
+
+
+pub fn setup_minimap_gradient(mut commands: Commands) {
+    let gradient = CustomGradient::new()
+        .colors(&[
+            colorgrad::Color::new(0.0, 0.0, 0.5, 1.0),
+            colorgrad::Color::new(0.0, 0.0, 1.0, 1.0),
+            colorgrad::Color::new(0.9, 0.9, 0.2, 1.0),
+            colorgrad::Color::new(0.0, 0.6, 0.0, 1.0),
+            colorgrad::Color::new(0.5, 0.3, 0.0, 1.0),
+            colorgrad::Color::new(1.0, 1.0, 1.0, 1.0),
+        ])
+        .domain(&[0.0, 0.3, 0.35, 0.4, 0.8, 1.0])
+        .build()
+        .unwrap();
+    commands.insert_resource(TerrainGradient(gradient));
+}

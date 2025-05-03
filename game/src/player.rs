@@ -3,6 +3,7 @@ use bevy::{
     prelude::*,
     window::CursorGrabMode,
     core_pipeline::Skybox,
+    ui::{UiRect, PositionType, JustifyContent},
 };
 use bevy::pbr::Atmosphere;
 
@@ -11,8 +12,8 @@ pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlayerSettings>()
-            .add_systems(Startup, setup_player)
-            .add_systems(Update, (player_move, player_look, toggle_cursor).chain());
+            .add_systems(Startup, (setup_player, setup_ui))
+            .add_systems(Update, (player_move, player_look, toggle_cursor, update_position_text).chain());
     }
 }
 
@@ -35,33 +36,153 @@ impl Default for PlayerSettings {
 #[derive(Component)]
 pub struct PlayerController;
 
+/// Marker component for the position text
+#[derive(Component)]
+pub struct PositionText;
+
 fn setup_player(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Load the skybox texture
-    // let metering_mask: Handle<Image> = asset_server.load("textures/basic_metering_mask.png");
     let skybox_handle: Handle<Image> = asset_server.load("environment_maps/night.ktx2"); 
     
+    // Spawn 2D camera with priority 0
     commands.spawn((
-        // Spawn Camera3d directly
+        Camera2d::default(),
+        Camera {
+            order: 0, // This ensures 2D renders before 3D
+            ..default()
+        },
+        Transform::default(),
+        GlobalTransform::default(),
+    ));
+    
+    // Spawn 3D camera with priority 1
+    commands.spawn((
         Camera3d::default(),
         Camera {
+            order: 1, // This ensures 3D renders after 2D
             hdr: true, // Atmosphere requires HDR
             clear_color: ClearColorConfig::None,
             ..default()
         },
+        Transform::from_xyz(-2.0, 5.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+        GlobalTransform::default(),
         Atmosphere::EARTH,
         Skybox {
             image: skybox_handle.clone(),
-            brightness: 500.0, // Adjust brightness as needed
+            brightness: 500.0,
             rotation: Quat::default(),
             ..default()
         },
-        // Add our controller marker
         PlayerController,
-        // Initial transform for the camera
-        Transform::from_xyz(-2.0, 5.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
-        // GlobalTransform is required by Transform
-        GlobalTransform::default(),
     ));
+}
+
+fn setup_ui(mut commands: Commands, _asset_server: Res<AssetServer>) {
+    // Root node
+    commands
+        .spawn((
+            Node {
+                width: Val::Percent(100.),
+                height: Val::Percent(100.),
+                flex_direction: FlexDirection::Column,
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+        ))
+        .with_children(|parent| {
+            // Top bar with position
+            parent
+                .spawn((
+                    Node {
+                        width: Val::Percent(100.),
+                        height: Val::Px(40.),
+                        flex_direction: FlexDirection::Row,
+                        justify_content: JustifyContent::SpaceBetween,
+                        padding: UiRect::all(Val::Px(10.)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::BLACK),
+                ))
+                .with_children(|parent| {
+                    // Position text (left)
+                    parent.spawn((
+                        Node {
+                            padding: UiRect::axes(Val::Px(5.), Val::Px(1.)),
+                            ..default()
+                        },
+                        Text::new("Position: (0.0, 0.0, 0.0)"),
+                        TextColor(Color::WHITE),
+                        PositionText,
+                    ));
+                });
+
+            // Crosshair in center
+            parent.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Percent(50.),
+                    top: Val::Percent(50.),
+                    width: Val::Px(10.),
+                    height: Val::Px(10.),
+                    margin: UiRect {
+                        left: Val::Px(-5.),
+                        top: Val::Px(-5.),
+                        ..default()
+                    },
+                    ..default()
+                },
+                BackgroundColor(Color::WHITE),
+            ));
+
+            // Bottom panel with controls
+            parent
+                .spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        bottom: Val::Px(0.),
+                        width: Val::Percent(100.),
+                        height: Val::Px(80.),
+                        padding: UiRect::all(Val::Px(10.)),
+                        flex_direction: FlexDirection::Column,
+                        ..default()
+                    },
+                    BackgroundColor(Color::BLACK),
+                ))
+                .with_children(|parent| {
+                    // Controls header
+                    parent.spawn((
+                        Node {
+                            margin: UiRect::bottom(Val::Px(5.)),
+                            ..default()
+                        },
+                        Text::new("Controls:"),
+                        TextColor(Color::WHITE),
+                    ));
+                    
+                    // Controls text
+                    parent.spawn((
+                        Node {
+                            ..default()
+                        },
+                        Text::new("WASD - Move  |  Space/Shift - Up/Down  |  Esc - Toggle Mouse"),
+                        TextColor(Color::WHITE),
+                    ));
+                });
+        });
+}
+
+fn update_position_text(
+    mut query: Query<&mut Text, With<PositionText>>,
+    camera_query: Query<&Transform, With<PlayerController>>,
+) {
+    if let (Ok(mut text), Ok(transform)) = (query.get_single_mut(), camera_query.get_single()) {
+        text.0 = format!(
+            "Position: ({:.1}, {:.1}, {:.1})",
+            transform.translation.x,
+            transform.translation.y,
+            transform.translation.z
+        );
+    }
 }
 
 fn player_move(

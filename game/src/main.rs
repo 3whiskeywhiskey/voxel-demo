@@ -12,12 +12,15 @@ use stdb::{
     DbConnection,
 };
 
-
 mod player;
 use player::PlayerPlugin;
 
 mod terrain;
-use terrain::TerrainPlugin;
+use terrain::{
+    TerrainPlugin,
+    types::ChunkCoords,
+    dirtychunks::DirtyChunks,
+};
 
 fn main() {
     App::new()

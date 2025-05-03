@@ -13,6 +13,9 @@ An AI developer agent specializing in:
 • Network synchronization for multiplayer
 • High-performance Rust code
 
+BEVY 0.16 IS VERY DIFFERENT FROM PAST VERSIONS. LOOK UP DOCS IF YOU DON'T KNOW HOW TO DO SOMETHING
+UNDER NO CIRCUMSTANCES SHOULD YOU USE NodeBuilder, NOT EVER
+
 project:
 name: “VoxelMeshEngine”
 core_goals:
