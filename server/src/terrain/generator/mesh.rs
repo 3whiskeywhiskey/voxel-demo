@@ -1,4 +1,5 @@
 use nalgebra::Vector3;
+use nalgebra::Matrix3;
 use crate::terrain::{
     coords::{ChunkCoords, CHUNK_SIZE},
     generator::PaddedHeightmap,
@@ -30,139 +31,87 @@ impl MeshGenerator {
         let dim = CHUNK_SIZE + 1;
         let mut cell_vertex_idx = vec![vec![None; dim]; dim];
         // record edge crossings for stitching
-        let mut edge_east  = vec![vec![false; dim]; dim];
-        let mut edge_south = vec![vec![false; dim]; dim];
 
-        // compute chunk world offset
-        // let world_offset = coord.to_world_pos(0, 0);
-        // let world_x = world_offset.x as f32;
-        // let world_z = world_offset.z as f32;
-
-        // debug!("World offset: ({}, {})", world_x, world_z);
-
-        // Debug: Print some heightmap values
-        // for z in 0..5 {
-        //     for x in 0..5 {
-        //         debug!("Height at ({}, {}): {}", x, z, padded_heightmap.get(x, z));
-        //     }
-        // }
+        // helper to sample the vertical edge at (x,z) for heightmap-based terrain
+        fn sample_vert_edge(
+            x0: usize,
+            z0: usize,
+            map: &PaddedHeightmap,
+            out: &mut Vec<Hermite>,
+        ) {
+            let h = map.get(x0, z0);
+            // position on the surface
+            let p = Vector3::new(x0 as f32, h, z0 as f32);
+            // approximate normal from height gradients
+            let dx = map.get(x0+1, z0) - map.get(x0.saturating_sub(1), z0);
+            let dz = map.get(x0, z0+1) - map.get(x0, z0.saturating_sub(1));
+            let n = Vector3::new(-dx, 2.0, -dz).normalize();
+            out.push(Hermite { p, n });
+        }
 
         struct Hermite {
             p: Vector3<f32>,
             n: Vector3<f32>,
         }
         
-        // helper to check one edge, returns true if any crossing found
-        fn sample_edge(
-            a: (usize, usize, f32),
-            b: (usize, usize, f32),
-            map: &PaddedHeightmap,
-            out: &mut Vec<Hermite>,
-        ) -> bool {
-            let (ax, az, height_a) = a;
-            let (bx, bz, height_b) = b;
-            let mut crossed = false;
-            // Sample multiple points along Y to find crossings
-            let sample_heights = [0.0, height_a.min(height_b), height_a.max(height_b)];
-            for &y_sample in &sample_heights {
-                let sdf_a = y_sample - height_a;
-                let sdf_b = y_sample - height_b;
-                if (sdf_a > 0.0) != (sdf_b > 0.0) {
-                    let t = (sdf_a / (sdf_a - sdf_b)).clamp(0.0, 1.0);
-                    let x = ax as f32 + t * (bx as f32 - ax as f32);
-                    let z = az as f32 + t * (bz as f32 - az as f32);
-                    let y = height_a + t * (height_b - height_a);
-                    let x_floor = x.floor() as usize;
-                    let z_floor = z.floor() as usize;
-                    let x_ceil = (x_floor + 1).min(CHUNK_SIZE - 1);
-                    let z_ceil = (z_floor + 1).min(CHUNK_SIZE - 1);
-                    let h00 = map.get(x_floor, z_floor);
-                    let h10 = map.get(x_ceil, z_floor);
-                    let h01 = map.get(x_floor, z_ceil);
-                    let h11 = map.get(x_ceil, z_ceil);
-                    let fx = x - x_floor as f32;
-                    let fz = z - z_floor as f32;
-                    let dx = (h10 - h00) * (1.0 - fz) + (h11 - h01) * fz;
-                    let dz = (h01 - h00) * (1.0 - fx) + (h11 - h10) * fx;
-                    let normal = Vector3::new(-dx, 1.0, -dz).normalize();
-                    let p = Vector3::new(x, y, z);
-                    out.push(Hermite { p, n: normal });
-                    crossed = true;
-                }
-            }
-            crossed
-        }
-        
-        // Process each cell and record crossings via sample_edge
-        for z in 0..=CHUNK_SIZE {
-            for x in 0..=CHUNK_SIZE {
+        // Process each cell and record crossings via sample_vert_edge
+        for z in 0..CHUNK_SIZE {
+            for x in 0..CHUNK_SIZE {
                 let mut hermites = Vec::with_capacity(4);
+                // sample the four vertical edges at the corners
+                sample_vert_edge(x,   z,   &padded_heightmap, &mut hermites);
+                sample_vert_edge(x+1, z,   &padded_heightmap, &mut hermites);
+                sample_vert_edge(x+1, z+1, &padded_heightmap, &mut hermites);
+                sample_vert_edge(x,   z+1, &padded_heightmap, &mut hermites);
+
+                // record crossings for stitching
                 let f00 = padded_heightmap.get(x, z);
-                let f10 = padded_heightmap.get(x + 1, z);
-                let f01 = padded_heightmap.get(x, z + 1);
-                let f11 = padded_heightmap.get(x + 1, z + 1);
+                let f10 = padded_heightmap.get(x+1, z);
+                let f01 = padded_heightmap.get(x, z+1);
+                let f11 = padded_heightmap.get(x+1, z+1);
 
-                // record crossings based on sample_edge result
-                let east_cross  = sample_edge((x, z, f00),    (x + 1, z, f10),    &padded_heightmap, &mut hermites);
-                let south_cross = sample_edge((x, z + 1, f01), (x, z, f00),       &padded_heightmap, &mut hermites);
-
-                // still sample the remaining edges to fill hermites
-                sample_edge((x + 1, z, f10),    (x + 1, z + 1, f11), &padded_heightmap, &mut hermites);
-                sample_edge((x + 1, z + 1, f11), (x, z + 1, f01),    &padded_heightmap, &mut hermites);
-
-                edge_east[z][x]  = east_cross;
-                edge_south[z][x] = south_cross;
-
-                if hermites.is_empty() { continue; }
-                // Average the positions and normals
-                let mut avg_pos = Vector3::zeros();
-                let mut avg_norm = Vector3::zeros();
+                // QEF solve: ATA v = ATb
+                let mut ata = Matrix3::zeros();
+                let mut atb = Vector3::zeros();
                 for h in &hermites {
-                    avg_pos += h.p;
-                    avg_norm += h.n;
+                    ata += h.n * h.n.transpose();
+                    atb += h.n * h.n.dot(&h.p);
                 }
-                avg_pos /= hermites.len() as f32;
-                avg_norm = avg_norm.normalize();
-                // Store the vertex
+                let mut v = ata.try_inverse().unwrap_or(Matrix3::identity()) * atb;
+                // clamp into cell bounds
+                let min_x = x as f32;
+                let min_z = z as f32;
+                v.x = v.x.clamp(min_x,     min_x + 1.0);
+                v.z = v.z.clamp(min_z,     min_z + 1.0);
+                // clamp y into height range of cell
+                let min_h = f00.min(f10).min(f01).min(f11);
+                let max_h = f00.max(f10).max(f01).max(f11);
+                v.y = v.y.clamp(min_h, max_h);
+
+                // emit vertex
                 let idx = vertex_count;
                 vertex_count += 1;
-                verts.extend_from_slice(&[avg_pos.x, avg_pos.y, avg_pos.z]);
-                norms.extend_from_slice(&[avg_norm.x, avg_norm.y, avg_norm.z]);
+                verts.extend_from_slice(&[v.x, v.y, v.z]);
+                // normal for shading
+                let normal = hermites.iter().fold(Vector3::zeros(), |s,h| s + h.n).normalize();
+                norms.extend_from_slice(&[normal.x, normal.y, normal.z]);
                 mats.push(0);
                 cell_vertex_idx[z][x] = Some(idx);
             }
         }
         
-        // PASS 2: per-edge stitching
-        // East edges: stitch quads between (z,x) and (z,x+1)
+        // PASS 2: unconditional stitching of all cells
         for z in 0..CHUNK_SIZE {
             for x in 0..CHUNK_SIZE {
-                if edge_east[z][x] {
-                    if let (Some(v00), Some(v10), Some(v11), Some(v01)) = (
-                        cell_vertex_idx[z][x],
-                        cell_vertex_idx[z + 1][x],
-                        cell_vertex_idx[z + 1][x + 1],
-                        cell_vertex_idx[z][x + 1],
-                    ) {
-                        idxs.extend_from_slice(&[v00, v10, v11]);
-                        idxs.extend_from_slice(&[v00, v11, v01]);
-                    }
-                }
-            }
-        }
-        // South edges: stitch quads between (z,x) and (z+1,x)
-        for z in 0..CHUNK_SIZE {
-            for x in 0..CHUNK_SIZE {
-                if edge_south[z][x] {
-                    if let (Some(v00), Some(v01), Some(v11), Some(v10)) = (
-                        cell_vertex_idx[z][x],
-                        cell_vertex_idx[z + 1][x],
-                        cell_vertex_idx[z + 1][x + 1],
-                        cell_vertex_idx[z][x + 1],
-                    ) {
-                        idxs.extend_from_slice(&[v00, v01, v11]);
-                        idxs.extend_from_slice(&[v00, v11, v10]);
-                    }
+                if let (Some(v00), Some(v10), Some(v11), Some(v01)) = (
+                    cell_vertex_idx[z][x],
+                    cell_vertex_idx[z][x + 1],
+                    cell_vertex_idx[z + 1][x + 1],
+                    cell_vertex_idx[z + 1][x],
+                ) {
+                    // Flip winding: triangle facing up when viewed from above
+                    idxs.extend_from_slice(&[v00, v11, v10]);
+                    idxs.extend_from_slice(&[v00, v01, v11]);
                 }
             }
         }
