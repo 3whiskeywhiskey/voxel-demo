@@ -17,9 +17,10 @@ impl PaddedHeightmap {
     }
 
     pub fn get(&self, x: usize, z: usize) -> f32 {
-        let u = (x + 1) as usize;
-        let v = (z + 1) as usize;
-        self.data[u + v * self.dim]
+        // map logical coord x,z to padded indices safely
+        let u = x.saturating_add(1).min(self.dim - 1);
+        let v = z.saturating_add(1).min(self.dim - 1);
+        self.data[v * self.dim + u]
     }
 }
 

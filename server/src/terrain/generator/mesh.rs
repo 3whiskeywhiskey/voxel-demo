@@ -27,10 +27,11 @@ impl MeshGenerator {
         let mut idxs = Vec::new();
         let mut mats = Vec::new();
         let mut vertex_count = 0u32;
-        let mut cell_vertex_idx: Vec<Vec<Option<u32>>> = vec![vec![None; CHUNK_SIZE]; CHUNK_SIZE];
+        let dim = CHUNK_SIZE + 1;
+        let mut cell_vertex_idx = vec![vec![None; dim]; dim];
         // record edge crossings for stitching
-        let mut edge_east:  Vec<Vec<bool>> = vec![vec![false; CHUNK_SIZE]; CHUNK_SIZE];
-        let mut edge_south: Vec<Vec<bool>> = vec![vec![false; CHUNK_SIZE]; CHUNK_SIZE];
+        let mut edge_east  = vec![vec![false; dim]; dim];
+        let mut edge_south = vec![vec![false; dim]; dim];
 
         // compute chunk world offset
         // let world_offset = coord.to_world_pos(0, 0);
@@ -93,8 +94,8 @@ impl MeshGenerator {
         }
         
         // Process each cell and record crossings via sample_edge
-        for z in 0..CHUNK_SIZE {
-            for x in 0..CHUNK_SIZE {
+        for z in 0..=CHUNK_SIZE {
+            for x in 0..=CHUNK_SIZE {
                 let mut hermites = Vec::with_capacity(4);
                 let f00 = padded_heightmap.get(x, z);
                 let f10 = padded_heightmap.get(x + 1, z);
@@ -133,44 +134,32 @@ impl MeshGenerator {
         }
         
         // PASS 2: per-edge stitching
-        // Stitch quads across east edges
-        for z in 0..(CHUNK_SIZE - 1) {
-            for x in 0..(CHUNK_SIZE - 1) {
+        // East edges: stitch quads between (z,x) and (z,x+1)
+        for z in 0..CHUNK_SIZE {
+            for x in 0..CHUNK_SIZE {
                 if edge_east[z][x] {
-                    if let (
-                        Some(v00),
-                        Some(v10),
-                        Some(v01),
-                        Some(v11)
-                    ) = (
+                    if let (Some(v00), Some(v10), Some(v11), Some(v01)) = (
                         cell_vertex_idx[z][x],
-                        cell_vertex_idx[z][x + 1],
                         cell_vertex_idx[z + 1][x],
                         cell_vertex_idx[z + 1][x + 1],
+                        cell_vertex_idx[z][x + 1],
                     ) {
-                        // quad between (z,x)->east and south neighbor: two tris
                         idxs.extend_from_slice(&[v00, v10, v11]);
                         idxs.extend_from_slice(&[v00, v11, v01]);
                     }
                 }
             }
         }
-        // Stitch quads across south edges
-        for z in 0..(CHUNK_SIZE - 1) {
-            for x in 0..(CHUNK_SIZE - 1) {
+        // South edges: stitch quads between (z,x) and (z+1,x)
+        for z in 0..CHUNK_SIZE {
+            for x in 0..CHUNK_SIZE {
                 if edge_south[z][x] {
-                    if let (
-                        Some(v00),
-                        Some(v10),
-                        Some(v01),
-                        Some(v11)
-                    ) = (
+                    if let (Some(v00), Some(v01), Some(v11), Some(v10)) = (
                         cell_vertex_idx[z][x],
-                        cell_vertex_idx[z][x + 1],
                         cell_vertex_idx[z + 1][x],
                         cell_vertex_idx[z + 1][x + 1],
+                        cell_vertex_idx[z][x + 1],
                     ) {
-                        // quad between (z,x)->south and east neighbor: two tris
                         idxs.extend_from_slice(&[v00, v01, v11]);
                         idxs.extend_from_slice(&[v00, v11, v10]);
                     }
