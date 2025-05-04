@@ -4,7 +4,7 @@ use spacetimedb::{table, reducer, ReducerContext, Table};
 
 use crate::entity::mesh::mesh;
 use crate::terrain::coords::ChunkCoords;
-use crate::terrain::generator::{HeightmapGenerator, MeshGenerator}  ;
+use crate::terrain::generator::{HeightmapGenerator, MeshGenerator, PaddedHeightmap}  ;
 use once_cell::sync::OnceCell;
 
 static HEIGHTMAP_GENERATOR: OnceCell<HeightmapGenerator> = OnceCell::new();
@@ -39,9 +39,13 @@ pub fn on_chunk_requested(
         .get_or_init(|| HeightmapGenerator::new(42))
         .generate_chunk(coord);
 
+    let padded_heightmap =  HEIGHTMAP_GENERATOR
+        .get_or_init(|| HeightmapGenerator::new(42))
+        .generate_padded_heightmap(coord);
+
     let mesh = MESH_GENERATOR
         .get_or_init(|| MeshGenerator::new())
-        .generate_mesh(coord, heights.clone());
+        .generate_mesh(coord, padded_heightmap);
 
     let mesh_table = ctx.db.mesh();
     let mesh_result = mesh_table.try_insert(mesh.clone());

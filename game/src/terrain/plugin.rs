@@ -22,7 +22,7 @@ impl Plugin for TerrainPlugin {
         app
         // Init our subscription‐handle resource
         .insert_resource(minimap_config)
-        .insert_resource(DirtyChunks::new(minimap_config.radius))
+        .insert_resource(DirtyChunks::new(3))
         .init_resource::<TerrainSubscription>()
         .init_resource::<MinimapImage>()
 

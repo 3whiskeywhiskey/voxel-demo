@@ -9,6 +9,7 @@ use bevy_spacetimedb::{
 
 use spacetimedb_sdk::{
     Table,
+    TableWithPrimaryKey,
     SubscriptionHandle as _SubscriptionHandleTrait,
 };
 
@@ -17,6 +18,7 @@ use crate::stdb::{
     on_chunk_requested,
     chunk_table::ChunkTableAccess,
     mesh_table::MeshTableAccess,
+    Mesh as TerrainMesh,
 };
 
 use colorgrad::{CustomGradient, Gradient};
@@ -34,7 +36,7 @@ pub struct TerrainGradient(pub Gradient);
 const HEIGHT_RANGE: f32 = 64.0;
 
 /// Radius in chunks for subscribing
-const SUB_RADIUS: i32 = 10;
+const SUB_RADIUS: i32 = 3;
 const CHUNK_SIZE: i32 = 32;
 
 /// Holds the current heightmap subscription handle
@@ -50,6 +52,7 @@ pub fn terrain_subscription_system(
     mut c_evt: EventReader<StdbConnectedEvent>,
     cam_q: Query<&Transform, With<Camera3d>>,
     stdb: Res<StdbConnection<DbConnection>>,
+    minimap_config: Res<MinimapConfig>,
     mut sub: ResMut<TerrainSubscription>,
     mut dirty_chunks: ResMut<DirtyChunks>,
 ) {
@@ -74,8 +77,9 @@ pub fn terrain_subscription_system(
             dirty_chunks.populate_radius(center.clone());
 
             // compute bounds
-            let (min_x, max_x) = (cx - SUB_RADIUS, cx + SUB_RADIUS);
-            let (min_z, max_z) = (cz - SUB_RADIUS, cz + SUB_RADIUS);
+            let minimap_radius = minimap_config.radius as i32;
+            let (min_x, max_x) = (cx - minimap_radius, cx + minimap_radius);
+            let (min_z, max_z) = (cz - minimap_radius, cz + minimap_radius);
             let predicate = format!(
                 "WHERE chunk.chunk_x >= {} AND chunk.chunk_x <= {} AND chunk.chunk_z >= {} AND chunk.chunk_z <= {}",
                 min_x, max_x, min_z, max_z
@@ -88,7 +92,13 @@ pub fn terrain_subscription_system(
                 })
                 .on_error(|_, e| error!("Terrain sub error: {}", e))
                 .subscribe(format!("SELECT * FROM chunk {}", predicate));
-            
+
+            let (min_x, max_x) = (cx - SUB_RADIUS, cx + SUB_RADIUS);
+            let (min_z, max_z) = (cz - SUB_RADIUS, cz + SUB_RADIUS);
+            let predicate = format!(
+                "WHERE chunk.chunk_x >= {} AND chunk.chunk_x <= {} AND chunk.chunk_z >= {} AND chunk.chunk_z <= {}",
+                min_x, max_x, min_z, max_z
+            );
             let mesh_handle = stdb
                 .subscribe()
                 .on_applied(|ctx| {
@@ -179,95 +189,21 @@ pub fn render_terrain(
     // Determine center chunk
     let center = sub.last_center.clone().unwrap_or(ChunkCoords { x: 0, z: 0 });
 
-    let min_x = center.x - radius;
-    let max_x = center.x + radius;
-    let min_z = center.z - radius;
-    let max_z = center.z + radius;
-
-    let table = stdb.db().chunk();
     let mesh_table = stdb.db().mesh();
-    let chunks_in_region: Vec<Chunk> = table
-        .iter()
-        .filter(|row| {
-            let x = row.coord.x;
-            let z = row.coord.z;
-            x >= min_x && x <= max_x && z >= min_z && z <= max_z
-        })
-        .collect();
+    let chunk_table = stdb.db().chunk();
 
-    let mut sorted = chunks_in_region.clone();
-    sorted.sort_by_key(|c| (c.coord.x, c.coord.z));
-
-    // Now you have all chunks in that 2D box:
-    for chunk in sorted {
-        // do whatever you need with each chunk
-        // info!("Rendering heightmap for chunk: {:?}", chunk.coord);
-
-        if let Some(coords) = dirty_chunks.pop_if_dirty(chunk.coord) {
+    while let Some(coords) = dirty_chunks.pop_dirty() {
+        if let Some(chunk) = chunk_table.iter().find(|row| row.coord == coords) {
             info!("Chunk found: {:?}", coords);
             match mesh_table.id().find(&chunk.mesh_id) {
                 Some(chunk_mesh) => {
-                    info!("Mesh found: {:?}", chunk_mesh.id);
-                    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD);
-                    let positions = chunk_mesh.vertices
-                        .chunks_exact(3)
-                        .map(|c| [c[0], c[1], c[2]])
-                        .collect::<Vec<_>>();
-                    
-                    let pos_len = positions.len();
-                    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-
-                    let normals = chunk_mesh.normals
-                        .chunks_exact(3)
-                        .map(|c| [c[0], c[1], c[2]])
-                        .collect::<Vec<_>>();
-                    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-
-                    // mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; pos_len]);
-
-                    mesh.insert_indices(Indices::U32(chunk_mesh.indices));
-
-
-                    let mesh_handle = meshes.add(mesh);
-                    let material_handle = materials.add(StandardMaterial {
-                        base_color: Srgba::hex("#ffd891").unwrap().into(),
-                        metallic: 0.5,
-                        perceptual_roughness: 0.5,
-                        // double_sided: true,
-                        // unlit: true,
-                        ..default()
-                    });
-
-                    // Calculate the chunk's world position
-                    let chunk_world_x = coords.x as f32 * CHUNK_SIZE as f32;
-                    let chunk_world_z = coords.z as f32 * CHUNK_SIZE as f32;
-                    let transform = Transform::from_xyz(chunk_world_x, 0.0, chunk_world_z);
-
-                    info!("Spawning mesh {:?} at {:?}", mesh_handle, transform.translation);
-
-                    // --- Explicit AABB for Culling Debug ---
-                    // let chunk_size_half = CHUNK_SIZE as f32 / 2.0;
-                    // // Center the AABB on the chunk's local origin, Extents cover the chunk size + generous height
-                    // let aabb = Aabb::from_min_max(
-                    //     Vec3::new(0.0, 0.0, 0.0), // Min corner (local space)
-                    //     Vec3::new(CHUNK_SIZE as f32, HEIGHT_RANGE * 2.0, CHUNK_SIZE as f32) // Max corner (local space)
-                    // );
-                    // TODO: continue storing AABB in the mesh table
-                    // --- End AABB Debug ---
-
-                    commands.spawn((
-                        Mesh3d(mesh_handle.clone()),
-                        MeshMaterial3d(material_handle.clone()),
-                        transform, // Use calculated transform
-                        Name::new(format!("TerrainChunk_{}_{}", coords.x, coords.z)),
-                    ));
+                    render_chunk(&mut commands, &mut meshes, &mut materials, chunk_mesh, coords.clone());
                 }
                 None => {
                     dirty_chunks.schedule_retry(coords.clone(), 1.0);
                     info!("No mesh found for chunk: {:?}", coords);
                 }
             }
-
 
             // Generate RGBA bytes functionally, then write each row in one go.
             let pixel_bytes: Vec<u8> = chunk.heights
@@ -284,8 +220,6 @@ pub fn render_terrain(
                     ]
                 })
                 .collect();
-
-            
 
             // Calculate the offset to center the chunk on the texture
             let offset_x = ((coords.x - center.x) * chunk_size as i32) + (tex_size as i32 - chunk_size as i32) / 2;
@@ -309,21 +243,76 @@ pub fn render_terrain(
                         info!("Skipping copy of row {}: ({},{})", row_z, dest_x, dest_z);
                     }
                 });
-            }
+        } else {
+            // No chunk yet for these coordinates, retry later
+            let _ = stdb.conn().reducers.on_chunk_requested(coords.clone());
+            dirty_chunks.schedule_retry(coords.clone(), 1.0);
+            info!("No chunk found for coords: {:?}", coords);
         }
-
-        let conn = stdb.conn();
-        while let Some(chunk) = dirty_chunks.pop_dirty() {
-            dirty_chunks.schedule_retry(chunk.clone(), 0.5);
-            info!("Leftover dirty chunk, requesting: {:?}", chunk);
-            let res = conn.reducers.on_chunk_requested(chunk);
-            if let Err(e) = res {
-                error!("Error requesting chunk: {:?}", e);
-            }
-        }
-        
+    }
 }
 
+fn render_chunk(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+    chunk_mesh: TerrainMesh,
+    coords: ChunkCoords,
+) {
+    info!("Mesh found: {:?}", chunk_mesh.id);
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD);
+    let positions = chunk_mesh.vertices
+        .chunks_exact(3)
+        .map(|c| [c[0], c[1], c[2]])
+        .collect::<Vec<_>>();
+    
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+
+    let normals = chunk_mesh.normals
+        .chunks_exact(3)
+        .map(|c| [c[0], c[1], c[2]])
+        .collect::<Vec<_>>();
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+
+    // mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; pos_len]);
+
+    mesh.insert_indices(Indices::U32(chunk_mesh.indices));
+
+
+    let mesh_handle = meshes.add(mesh);
+    let material_handle = materials.add(StandardMaterial {
+        base_color: Srgba::hex("#ffd891").unwrap().into(),
+        metallic: 0.5,
+        perceptual_roughness: 0.5,
+        // double_sided: true,
+        // unlit: true,
+        ..default()
+    });
+
+    // Calculate the chunk's world position
+    let chunk_world_x = coords.x as f32 * CHUNK_SIZE as f32;
+    let chunk_world_z = coords.z as f32 * CHUNK_SIZE as f32;
+    let transform = Transform::from_xyz(chunk_world_x, 0.0, chunk_world_z);
+
+    info!("Spawning mesh {:?} at {:?}", mesh_handle, transform.translation);
+
+    // --- Explicit AABB for Culling Debug ---
+    // let chunk_size_half = CHUNK_SIZE as f32 / 2.0;
+    // // Center the AABB on the chunk's local origin, Extents cover the chunk size + generous height
+    // let aabb = Aabb::from_min_max(
+    //     Vec3::new(0.0, 0.0, 0.0), // Min corner (local space)
+    //     Vec3::new(CHUNK_SIZE as f32, HEIGHT_RANGE * 2.0, CHUNK_SIZE as f32) // Max corner (local space)
+    // );
+    // TODO: continue storing AABB in the mesh table
+    // --- End AABB Debug ---
+
+    commands.spawn((
+        Mesh3d(mesh_handle.clone()),
+        MeshMaterial3d(material_handle.clone()),
+        transform, // Use calculated transform
+        Name::new(format!("TerrainChunk_{}_{}", coords.x, coords.z)),
+    ));
+}
 
 pub fn setup_minimap_gradient(mut commands: Commands) {
     let gradient = CustomGradient::new()

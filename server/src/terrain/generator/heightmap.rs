@@ -4,6 +4,24 @@ use crate::terrain::coords::{ChunkCoords, CHUNK_SIZE};
 
 const HEIGHT_RANGE: f32 = 64.0;
 
+pub struct PaddedHeightmap {
+    data: Vec<f32>,
+    dim: usize, // CHUNK_SIZE + 2
+}
+
+impl PaddedHeightmap {
+    pub fn new(data: Vec<f32>, chunk_size: usize) -> Self {
+        assert!(data.len() == (chunk_size + 2) * (chunk_size + 2));
+        Self { data, dim: chunk_size + 2 }
+    }
+
+    pub fn get(&self, x: usize, z: usize) -> f32 {
+        let u = (x + 1) as usize;
+        let v = (z + 1) as usize;
+        self.data[u + v * self.dim]
+    }
+}
+
 pub struct HeightmapGenerator {
     noise: Perlin,
     base_frequency: f64,
@@ -26,8 +44,8 @@ impl HeightmapGenerator {
     pub fn generate_chunk(&self, coord: ChunkCoords) -> Vec<f32> {
         let mut heights = Vec::with_capacity(CHUNK_SIZE * CHUNK_SIZE);
         
-        for z in 0..CHUNK_SIZE {
-            for x in 0..CHUNK_SIZE {
+        for z in 0..CHUNK_SIZE as i32 {
+            for x in 0..CHUNK_SIZE as i32 {
                 let world_pos = coord.to_world_pos(x, z);
                 let height = self.sample_height(world_pos.x as f64, world_pos.z as f64);
                 heights.push(height);
@@ -35,6 +53,23 @@ impl HeightmapGenerator {
         }
         
         heights
+    }
+
+
+    // generates a heightmap that is a chunk but one block larger on all sides
+    // this helps the mesh generator blend between chunks
+    pub fn generate_padded_heightmap(&self, coord: ChunkCoords) -> PaddedHeightmap {
+        let mut heights = Vec::with_capacity(CHUNK_SIZE * CHUNK_SIZE);
+
+        for z in -1..CHUNK_SIZE as i32 +1 {
+            for x in -1..CHUNK_SIZE as i32 +1 {
+                let world_pos = coord.to_world_pos(x, z);
+                let height = self.sample_height(world_pos.x as f64, world_pos.z as f64);
+                heights.push(height);
+            }
+        }
+
+        PaddedHeightmap::new(heights, CHUNK_SIZE)
     }
 
     fn sample_height(&self, x: f64, z: f64) -> f32 {

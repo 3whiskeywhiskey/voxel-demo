@@ -1,5 +1,9 @@
+use nalgebra::{Matrix3, Vector3};
 use crate::{
-    terrain::coords::{ChunkCoords, CHUNK_SIZE},
+    terrain::{
+        coords::{ChunkCoords, CHUNK_SIZE, Vec3},
+        generator::PaddedHeightmap,
+    },
     entity::Mesh,
 };
 
@@ -11,82 +15,123 @@ impl MeshGenerator {
         Self {}
     }
 
-    pub fn generate_mesh(&self, coord: ChunkCoords, heights: Vec<f32>) -> Mesh {
-        let mesh = self.heightmap_to_blocky_mesh(coord, heights);
+    pub fn generate_mesh(&self, coord: ChunkCoords, padded_heightmap: PaddedHeightmap) -> Mesh {
+        let mesh = self.generate_dual_contour_mesh(coord, padded_heightmap);
         // let mesh = self.cuboid_mesh();
         mesh
     }
 
-    /*
-     Cuboid mesh: Mesh { primitive_topology: TriangleList, 
-     attributes: {
-     MeshVertexAttributeId(0): MeshAttributeData { attribute: MeshVertexAttribute { name: "Vertex_Position", id: MeshVertexAttributeId(0), format: Float32x3 }, values: Float32x3([[-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5], [-0.5, 0.5, -0.5], [0.5, 0.5, -0.5], [0.5, -0.5, -0.5], [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [0.5, 0.5, 0.5], [0.5, -0.5, 0.5], [-0.5, -0.5, 0.5], [-0.5, 0.5, 0.5], [-0.5, 0.5, -0.5], [-0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5], [-0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [0.5, -0.5, 0.5], [-0.5, -0.5, 0.5], [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5]]) }, 
-     MeshVertexAttributeId(1): MeshAttributeData { attribute: MeshVertexAttribute { name: "Vertex_Normal", id: MeshVertexAttributeId(1), format: Float32x3 }, values: Float32x3([[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, -1.0], [0.0, 0.0, -1.0], [0.0, 0.0, -1.0], [0.0, 0.0, -1.0], [1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.0, -1.0, 0.0], [0.0, -1.0, 0.0], [0.0, -1.0, 0.0], [0.0, -1.0, 0.0]]) }, 
-     MeshVertexAttributeId(2): MeshAttributeData { attribute: MeshVertexAttribute { name: "Vertex_Uv", id: MeshVertexAttributeId(2), format: Float32x2 }, values: Float32x2([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [1.0, 0.0], [0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [1.0, 0.0], [0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]) }}, indices: Some(U32([0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4, 8, 9, 10, 10, 11, 8, 12, 13, 14, 14, 15, 12, 16, 17, 18, 18, 19, 16, 20, 21, 22, 22, 23, 20])), morph_targets: None, morph_target_names: None, asset_usage: RenderAssetUsages(MAIN_WORLD | RENDER_WORLD) }
-
-     we need to generate the equivalent Mesh
-     */
-    fn cuboid_mesh(&self) -> Mesh {
+    // generates a mesh from a heightmap using the dual contouring algorithm
+    fn generate_dual_contour_mesh(&self, coord: ChunkCoords, padded_heightmap: PaddedHeightmap) -> Mesh {
         let mut verts: Vec<f32> = Vec::new();
         let mut norms: Vec<f32> = Vec::new();
         let mut idxs: Vec<u32> = Vec::new();
         let mut mats: Vec<u32> = Vec::new();
 
-        // Front face
-        verts.extend([-0.5, -0.5, 0.5]);  // 0
-        verts.extend([0.5, -0.5, 0.5]);   // 1
-        verts.extend([0.5, 0.5, 0.5]);    // 2
-        verts.extend([-0.5, 0.5, 0.5]);   // 3
+        // compute chunk world offset
+        let world_offset = coord.to_world_pos(0, 0);
+        let world_x = world_offset.x;
+        let world_z = world_offset.z;
 
-        // Back face
-        verts.extend([-0.5, 0.5, -0.5]);  // 4
-        verts.extend([0.5, 0.5, -0.5]);   // 5
-        verts.extend([0.5, -0.5, -0.5]);  // 6
-        verts.extend([-0.5, -0.5, -0.5]); // 7
+        struct Hermite {
+            p: Vector3<f32>,
+            n: Vector3<f32>,
+        }
+        
+        // helper to check one edge
+        fn sample_edge(
+            a: (usize, usize, f32),
+            b: (usize, usize, f32),
+            world_x: f32,
+            world_z: f32,
+            map: &PaddedHeightmap,
+            out: &mut Vec<Hermite>,
+        ) {
+            let (ax, az, fa) = a;
+            let (bx, bz, fb) = b;
+            if (fa > 0.0) != (fb > 0.0) {
+                // param t for zero‐crossing
+                let t = fa / (fa - fb);
 
-        // Right face
-        verts.extend([0.5, -0.5, -0.5]);  // 8
-        verts.extend([0.5, 0.5, -0.5]);   // 9
-        verts.extend([0.5, 0.5, 0.5]);    // 10
-        verts.extend([0.5, -0.5, 0.5]);   // 11
+                let px = world_x + (ax as f32 + t * ((bx-ax) as f32));
+                let pz = world_z + (az as f32 + t * ((bz-az) as f32));
+                let py = 0.0; // for heightfields, y=0 is isosurface
 
-        // Left face
-        verts.extend([-0.5, -0.5, 0.5]);  // 12
-        verts.extend([-0.5, 0.5, 0.5]);   // 13
-        verts.extend([-0.5, 0.5, -0.5]);  // 14
-        verts.extend([-0.5, -0.5, -0.5]); // 15
+                // approximate normal by central‐diff in the heightmap
+                let dx = map.get(ax+1, az) - map.get(ax-1, az);
+                let dz = map.get(ax,   az+1) - map.get(ax,   az-1);
 
-        // Top face
-        verts.extend([0.5, 0.5, -0.5]);   // 16
-        verts.extend([-0.5, 0.5, -0.5]);  // 17
-        verts.extend([-0.5, 0.5, 0.5]);   // 18
-        verts.extend([0.5, 0.5, 0.5]);    // 19
+                let normal = Vector3::new(-dx, 2.0, -dz).normalize();
+                
+                out.push(Hermite { p: Vector3::new(px, py, pz), n: normal });
+            }
+        }
+        
+        let mut hermites: Vec<Hermite> = Vec::with_capacity(4);
+        let mut cell_vertex_idx: Vec<Vec<Option<u32>>> = vec![vec![None; CHUNK_SIZE]; CHUNK_SIZE];
 
-        // Bottom face
-        verts.extend([0.5, -0.5, 0.5]);   // 20
-        verts.extend([-0.5, -0.5, 0.5]);  // 21
-        verts.extend([-0.5, -0.5, -0.5]); // 22
-        verts.extend([0.5, -0.5, -0.5]);  // 23
+        for z in 0..CHUNK_SIZE {
+            for x in 0..CHUNK_SIZE {
+                // corner heights
+                let f00 = padded_heightmap.get(x  , z  );
+                let f10 = padded_heightmap.get(x+1, z  );
+                let f01 = padded_heightmap.get(x  , z+1);
+                let f11 = padded_heightmap.get(x+1, z+1);
 
-        // Normals for each face (4 vertices per face)
-        for _ in 0..4 { norms.extend([0.0, 0.0, 1.0]); }   // Front
-        for _ in 0..4 { norms.extend([0.0, 0.0, -1.0]); }  // Back
-        for _ in 0..4 { norms.extend([1.0, 0.0, 0.0]); }   // Right
-        for _ in 0..4 { norms.extend([-1.0, 0.0, 0.0]); }  // Left
-        for _ in 0..4 { norms.extend([0.0, 1.0, 0.0]); }   // Top
-        for _ in 0..4 { norms.extend([0.0, -1.0, 0.0]); }  // Bottom
+                hermites.clear();
 
-        // Add material indices (one per vertex)
-        mats.extend(vec![0; 24]); // 24 vertices total
+                // sample the edges to find zero crossings, store them in hermites
+                sample_edge((x,  z,  f00), (x+1, z,  f10), world_x, world_z, &padded_heightmap, &mut hermites);
+                sample_edge((x+1,z,  f10), (x+1, z+1,f11), world_x, world_z, &padded_heightmap, &mut hermites);
+                sample_edge((x+1,z+1,f11), (x,   z+1,f01), world_x, world_z, &padded_heightmap, &mut hermites);
+                sample_edge((x,  z+1,f01), (x,   z,  f00), world_x, world_z, &padded_heightmap, &mut hermites);
 
-        // Indices for each face (2 triangles per face)
-        idxs.extend([0, 1, 2, 2, 3, 0]);     // Front
-        idxs.extend([4, 5, 6, 6, 7, 4]);     // Back
-        idxs.extend([8, 9, 10, 10, 11, 8]);  // Right
-        idxs.extend([12, 13, 14, 14, 15, 12]); // Left
-        idxs.extend([16, 17, 18, 18, 19, 16]); // Top
-        idxs.extend([20, 21, 22, 22, 23, 20]); // Bottom
+                // if there was at least one crossing, perform QEF 
+                if !hermites.is_empty() {
+                    // build ATA and ATb from hermites[..]
+                    let mut ata = Matrix3::zeros();
+                    let mut atb = Vector3::zeros();
+                    for h in &hermites {
+                        // Outer product: n * n^T
+                        ata += h.n * h.n.transpose();
+                        // Dot expects a reference
+                        atb += h.n * h.n.dot(&h.p);
+                    }
+                    // solve for v
+                    let mut v = ata.try_inverse().unwrap_or(Matrix3::identity()) * atb;
 
+                    // optionally clamp v back into the [x..x+1]×[z..z+1] cell bounds
+                    v.x = v.x.clamp(world_x + x as f32, world_x + x as f32 + 1.0);
+                    v.z = v.z.clamp(world_z + z as f32, world_z + z as f32 + 1.0);
+
+                    // 4) emit that vertex and remember its index
+                    let idx = (verts.len() / 3) as u32;
+                    verts.extend_from_slice(&[v.x, v.y, v.z]);
+                    // compute vertex normal by averaging Hermite normals
+                    let normal: Vector3<f32> = hermites.iter()
+                        .fold(Vector3::zeros(), |sum, h| sum + h.n)
+                        .normalize();
+                    norms.extend_from_slice(&[normal.x, normal.y, normal.z]);
+                    // placeholder material ID per vertex
+                    mats.push(0);
+                    cell_vertex_idx[z as usize][x as usize] = Some(idx);
+                }
+            }
+        }
+        
+        // emit the triangles
+        for z in 0..CHUNK_SIZE-1 {
+            for x in 0..CHUNK_SIZE-1 {
+                let v00 = match cell_vertex_idx[z  ][x  ] { Some(i) => i, None => continue };
+                let v01 = match cell_vertex_idx[z  ][x+1] { Some(i) => i, None => continue };
+                let v10 = match cell_vertex_idx[z+1][x  ] { Some(i) => i, None => continue };
+                let v11 = match cell_vertex_idx[z+1][x+1] { Some(i) => i, None => continue };
+
+                // idxs.extend([v00, v01, v10, v01, v11, v10]);
+                idxs.extend([v00, v10, v01, v10, v11, v01]);
+            }
+        }
+    
         Mesh {
             id: 0,
             vertices: verts,
@@ -95,6 +140,7 @@ impl MeshGenerator {
             materials: mats,
         }
     }
+
 
     fn heightmap_to_blocky_mesh(&self, coord: ChunkCoords, heights: Vec<f32>) -> Mesh {
         let mut verts: Vec<f32> = Vec::new();
@@ -108,6 +154,12 @@ impl MeshGenerator {
             for x in 0..CHUNK_SIZE {
                 let h = heights[(z * CHUNK_SIZE + x) as usize];
                 if h <= 0.0 { continue; }
+
+                // fetch neighbor heights (treat out‑of‑bounds as h)
+                let north = if z + 1 < CHUNK_SIZE { heights[((z + 1) * CHUNK_SIZE + x) as usize] } else { h };
+                let south = if z > 0 { heights[((z - 1) * CHUNK_SIZE + x) as usize] } else { h };
+                let east  = if x + 1 < CHUNK_SIZE { heights[(z * CHUNK_SIZE + (x + 1)) as usize] } else { h };
+                let west  = if x > 0 { heights[(z * CHUNK_SIZE + (x - 1)) as usize] } else { h };
                 
                 // Four corners of top quad
                 let base = (verts.len() / 3) as u32;
@@ -135,54 +187,55 @@ impl MeshGenerator {
 
                 // Side and bottom faces
                 // Front (+Z)
-                let side_base = (verts.len() / 3) as u32;
-                verts.extend([local_x,    0.0, local_z + 1.0]);
-                verts.extend([local_x + 1.0, 0.0, local_z + 1.0]);
-                verts.extend([local_x,       y, local_z + 1.0]);
-                verts.extend([local_x + 1.0,   y, local_z + 1.0]);
-                norms.extend(std::iter::repeat([0.0f32, 0.0f32, 1.0f32]).take(4).flatten());
-                mats.extend([0; 4]);
-                idxs.extend([side_base, side_base + 2, side_base + 1, side_base + 1, side_base + 2, side_base + 3]);
+                if north < h {
+                    let side_base = (verts.len() / 3) as u32;
+                    verts.extend([local_x,    0.0, local_z + 1.0]);
+                    verts.extend([local_x + 1.0, 0.0, local_z + 1.0]);
+                    verts.extend([local_x,       y, local_z + 1.0]);
+                    verts.extend([local_x + 1.0,   y, local_z + 1.0]);
+                    norms.extend(std::iter::repeat([0.0f32, 0.0f32, 1.0f32]).take(4).flatten());
+                    mats.extend([0; 4]);
+                    idxs.extend([side_base, side_base + 2, side_base + 1, side_base + 1, side_base + 2, side_base + 3]);
+                }
 
                 // Back (-Z)
-                let side_base = (verts.len() / 3) as u32;
-                verts.extend([local_x + 1.0, 0.0, local_z]);
-                verts.extend([local_x,       0.0, local_z]);
-                verts.extend([local_x + 1.0,   y, local_z]);
-                verts.extend([local_x,         y, local_z]);
-                norms.extend(std::iter::repeat([0.0f32, 0.0f32, -1.0f32]).take(4).flatten());
-                mats.extend([0; 4]);
-                idxs.extend([side_base, side_base + 2, side_base + 1, side_base + 1, side_base + 2, side_base + 3]);
+                if south < h {
+                    let side_base = (verts.len() / 3) as u32;
+                    verts.extend([local_x + 1.0, 0.0, local_z]);
+                    verts.extend([local_x,       0.0, local_z]);
+                    verts.extend([local_x + 1.0,   y, local_z]);
+                    verts.extend([local_x,         y, local_z]);
+                    norms.extend(std::iter::repeat([0.0f32, 0.0f32, -1.0f32]).take(4).flatten());
+                    mats.extend([0; 4]);
+                    idxs.extend([side_base, side_base + 2, side_base + 1, side_base + 1, side_base + 2, side_base + 3]);
+                }
 
                 // Right (+X)
-                let side_base = (verts.len() / 3) as u32;
-                verts.extend([local_x + 1.0, 0.0, local_z + 1.0]);
-                verts.extend([local_x + 1.0, 0.0, local_z]);
-                verts.extend([local_x + 1.0,   y, local_z + 1.0]);
-                verts.extend([local_x + 1.0,   y, local_z]);
-                norms.extend(std::iter::repeat([1.0f32, 0.0f32, 0.0f32]).take(4).flatten());
-                mats.extend([0; 4]);
-                idxs.extend([side_base, side_base + 2, side_base + 1, side_base + 1, side_base + 2, side_base + 3]);
+                if east < h {
+                    let side_base = (verts.len() / 3) as u32;
+                    verts.extend([local_x + 1.0, 0.0, local_z + 1.0]);
+                    verts.extend([local_x + 1.0, 0.0, local_z]);
+                    verts.extend([local_x + 1.0,   y, local_z + 1.0]);
+                    verts.extend([local_x + 1.0,   y, local_z]);
+                    norms.extend(std::iter::repeat([1.0f32, 0.0f32, 0.0f32]).take(4).flatten());
+                    mats.extend([0; 4]);
+                    idxs.extend([side_base, side_base + 2, side_base + 1, side_base + 1, side_base + 2, side_base + 3]);
+                }
 
                 // Left (-X)
-                let side_base = (verts.len() / 3) as u32;
-                verts.extend([local_x,    0.0, local_z]);
-                verts.extend([local_x,    0.0, local_z + 1.0]);
-                verts.extend([local_x,      y, local_z]);
-                verts.extend([local_x,      y, local_z + 1.0]);
-                norms.extend(std::iter::repeat([-1.0f32, 0.0f32, 0.0f32]).take(4).flatten());
-                mats.extend([0; 4]);
-                idxs.extend([side_base, side_base + 2, side_base + 1, side_base + 1, side_base + 2, side_base + 3]);
+                if west < h {
+                    let side_base = (verts.len() / 3) as u32;
+                    verts.extend([local_x,    0.0, local_z]);
+                    verts.extend([local_x,    0.0, local_z + 1.0]);
+                    verts.extend([local_x,      y, local_z]);
+                    verts.extend([local_x,      y, local_z + 1.0]);
+                    norms.extend(std::iter::repeat([-1.0f32, 0.0f32, 0.0f32]).take(4).flatten());
+                    mats.extend([0; 4]);
+                    idxs.extend([side_base, side_base + 2, side_base + 1, side_base + 1, side_base + 2, side_base + 3]);
+                }
 
                 // Bottom face (y = 0)
-                let bottom_base = (verts.len() / 3) as u32;
-                verts.extend([local_x + 1.0, 0.0, local_z + 1.0]);
-                verts.extend([local_x,       0.0, local_z + 1.0]);
-                verts.extend([local_x + 1.0,   0.0, local_z]);
-                verts.extend([local_x,         0.0, local_z]);
-                norms.extend(std::iter::repeat([0.0f32, -1.0f32, 0.0f32]).take(4).flatten());
-                mats.extend([0; 4]);
-                idxs.extend([bottom_base, bottom_base + 2, bottom_base + 1, bottom_base + 1, bottom_base + 2, bottom_base + 3]);
+                // Skipped to avoid under-chunk geometry
             }
         }
         
