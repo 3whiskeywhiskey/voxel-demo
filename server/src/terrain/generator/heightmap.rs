@@ -2,8 +2,9 @@ use noise::{NoiseFn, Perlin};
 
 use crate::terrain::coords::{ChunkCoords, CHUNK_SIZE};
 
-const HEIGHT_RANGE: f32 = 64.0;
+const HEIGHT_RANGE: f32 = 32.0;
 
+#[derive(Clone)]
 pub struct PaddedHeightmap {
     data: Vec<f32>,
     dim: usize, // CHUNK_SIZE + 2
@@ -65,6 +66,9 @@ impl HeightmapGenerator {
             for x in -1..CHUNK_SIZE as i32 +1 {
                 let world_pos = coord.to_world_pos(x, z);
                 let height = self.sample_height(world_pos.x as f64, world_pos.z as f64);
+                // if x < 5 && z < 5 {
+                //     debug!("Generated height at world ({}, {}): {}", world_pos.x, world_pos.z, height);
+                // }
                 heights.push(height);
             }
         }
@@ -91,6 +95,12 @@ impl HeightmapGenerator {
         }
 
         let normalized = (noise_height / max_value) as f32;
-        (normalized * 0.5 + 0.5) * HEIGHT_RANGE
+        let height = normalized * HEIGHT_RANGE;
+        
+        // if x < 5.0 && z < 5.0 {
+        //     debug!("Sampled height at ({}, {}): {} (normalized: {})", x, z, height, normalized);
+        // }
+        
+        height
     }
 }

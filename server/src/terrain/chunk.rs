@@ -4,7 +4,7 @@ use spacetimedb::{table, reducer, ReducerContext, Table};
 
 use crate::entity::mesh::mesh;
 use crate::terrain::coords::ChunkCoords;
-use crate::terrain::generator::{HeightmapGenerator, MeshGenerator, PaddedHeightmap}  ;
+use crate::terrain::generator::{HeightmapGenerator, MeshGenerator}  ;
 use once_cell::sync::OnceCell;
 
 static HEIGHTMAP_GENERATOR: OnceCell<HeightmapGenerator> = OnceCell::new();

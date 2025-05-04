@@ -28,10 +28,10 @@ fn test_height_range() {
     let coord = ChunkCoords { x: 0, z: 0 };
     let heights = generator.generate_chunk(coord);
     
-    // Heights should be between 0 and HEIGHT_RANGE
+    // Heights should be between -HEIGHT_RANGE and +HEIGHT_RANGE
     for height in heights {
-        assert!(height >= 0.0);
-        assert!(height <= 64.0); // HEIGHT_RANGE constant
+        assert!(height >= -32.0);  // -HEIGHT_RANGE
+        assert!(height <= 32.0);   // +HEIGHT_RANGE
     }
 }
 
