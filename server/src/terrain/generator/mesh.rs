@@ -28,11 +28,14 @@ impl MeshGenerator {
         let mut mats = Vec::new();
         let mut vertex_count = 0u32;
         let mut cell_vertex_idx: Vec<Vec<Option<u32>>> = vec![vec![None; CHUNK_SIZE]; CHUNK_SIZE];
+        // record edge crossings for stitching
+        let mut edge_east:  Vec<Vec<bool>> = vec![vec![false; CHUNK_SIZE]; CHUNK_SIZE];
+        let mut edge_south: Vec<Vec<bool>> = vec![vec![false; CHUNK_SIZE]; CHUNK_SIZE];
 
         // compute chunk world offset
-        let world_offset = coord.to_world_pos(0, 0);
-        let world_x = world_offset.x as f32;
-        let world_z = world_offset.z as f32;
+        // let world_offset = coord.to_world_pos(0, 0);
+        // let world_x = world_offset.x as f32;
+        // let world_z = world_offset.z as f32;
 
         // debug!("World offset: ({}, {})", world_x, world_z);
 
@@ -48,227 +51,128 @@ impl MeshGenerator {
             n: Vector3<f32>,
         }
         
-        // helper to check one edge
+        // helper to check one edge, returns true if any crossing found
         fn sample_edge(
             a: (usize, usize, f32),
             b: (usize, usize, f32),
-            world_x: f32,
-            world_z: f32,
             map: &PaddedHeightmap,
             out: &mut Vec<Hermite>,
-        ) {
+        ) -> bool {
             let (ax, az, height_a) = a;
             let (bx, bz, height_b) = b;
-            
-            // debug!("Sampling edge ({},{}) -> ({},{}): heights {} -> {}", 
-            //     ax, az, bx, bz, height_a, height_b);
-            
-            // For heightmap terrain:
-            // - Points above terrain height are outside (positive SDF)
-            // - Points below terrain height are inside (negative SDF)
+            let mut crossed = false;
             // Sample multiple points along Y to find crossings
             let sample_heights = [0.0, height_a.min(height_b), height_a.max(height_b)];
-            
             for &y_sample in &sample_heights {
-                let sdf_a = y_sample - height_a;  // Negative when below terrain (inside)
+                let sdf_a = y_sample - height_a;
                 let sdf_b = y_sample - height_b;
-                
-                // debug!("At y={}: SDF values: {} -> {}", y_sample, sdf_a, sdf_b);
-                
-                // Check for zero crossing
                 if (sdf_a > 0.0) != (sdf_b > 0.0) {
-                    // debug!("Found zero crossing!");
-                    // Linear interpolation parameter t
-                    let t = sdf_a / (sdf_a - sdf_b);
-                    let t = t.clamp(0.0, 1.0);
-                    
-                    // Interpolate position
+                    let t = (sdf_a / (sdf_a - sdf_b)).clamp(0.0, 1.0);
                     let x = ax as f32 + t * (bx as f32 - ax as f32);
                     let z = az as f32 + t * (bz as f32 - az as f32);
-                    
-                    // The y coordinate should be the actual height value at the crossing point
-                    let y = height_a + t * (height_b - height_a);  // Interpolate height
-                    
-                    // Calculate normal using central differences at the interpolated position
+                    let y = height_a + t * (height_b - height_a);
                     let x_floor = x.floor() as usize;
                     let z_floor = z.floor() as usize;
                     let x_ceil = (x_floor + 1).min(CHUNK_SIZE - 1);
                     let z_ceil = (z_floor + 1).min(CHUNK_SIZE - 1);
-                    
-                    // Sample heights at the four corners around the interpolated position
                     let h00 = map.get(x_floor, z_floor);
                     let h10 = map.get(x_ceil, z_floor);
                     let h01 = map.get(x_floor, z_ceil);
                     let h11 = map.get(x_ceil, z_ceil);
-                    
-                    // debug!("Heights around point: h00={}, h10={}, h01={}, h11={}", h00, h10, h01, h11);
-                    
-                    // Bilinearly interpolate the gradients
                     let fx = x - x_floor as f32;
                     let fz = z - z_floor as f32;
-                    
                     let dx = (h10 - h00) * (1.0 - fz) + (h11 - h01) * fz;
                     let dz = (h01 - h00) * (1.0 - fx) + (h11 - h10) * fx;
-                    
-                    // debug!("Gradients: dx={}, dz={}", dx, dz);
-                    
-                    // Normal should point outward from the terrain (up from surface)
                     let normal = Vector3::new(-dx, 1.0, -dz).normalize();
-                    
-                    // Create hermite sample at the interpolated position
-                    let p = Vector3::new(
-                        x + world_x,
-                        y,
-                        z + world_z
-                    );
-                    
-                    // debug!("Created vertex at ({}, {}, {}) with normal ({}, {}, {})",
-                        // p.x, p.y, p.z, normal.x, normal.y, normal.z);
-                    
+                    let p = Vector3::new(x, y, z);
                     out.push(Hermite { p, n: normal });
+                    crossed = true;
                 }
             }
+            crossed
         }
         
-        // Process each cell
+        // Process each cell and record crossings via sample_edge
         for z in 0..CHUNK_SIZE {
             for x in 0..CHUNK_SIZE {
                 let mut hermites = Vec::with_capacity(4);
-                
-                // Sample edges around this cell
                 let f00 = padded_heightmap.get(x, z);
                 let f10 = padded_heightmap.get(x + 1, z);
                 let f01 = padded_heightmap.get(x, z + 1);
                 let f11 = padded_heightmap.get(x + 1, z + 1);
-                
-                // if x < 5 && z < 5 {
-                //     debug!("Cell ({},{}) heights: f00={}, f10={}, f01={}, f11={}", x, z, f00, f10, f01, f11);
-                // }
-                
-                // Sample all four edges
-                // Bottom edge (x -> x+1)
-                sample_edge(
-                    (x, z, f00),
-                    (x + 1, z, f10),
-                    world_x,
-                    world_z,
-                    &padded_heightmap,
-                    &mut hermites
-                );
-                
-                // Right edge (z -> z+1)
-                sample_edge(
-                    (x + 1, z, f10),
-                    (x + 1, z + 1, f11),
-                    world_x,
-                    world_z,
-                    &padded_heightmap,
-                    &mut hermites
-                );
-                
-                // Top edge (x+1 -> x)
-                sample_edge(
-                    (x + 1, z + 1, f11),
-                    (x, z + 1, f01),
-                    world_x,
-                    world_z,
-                    &padded_heightmap,
-                    &mut hermites
-                );
-                
-                // Left edge (z+1 -> z)
-                sample_edge(
-                    (x, z + 1, f01),
-                    (x, z, f00),
-                    world_x,
-                    world_z,
-                    &padded_heightmap,
-                    &mut hermites
-                );
-                
-                // If we found any edge crossings, generate a vertex
-                if !hermites.is_empty() {
-                    // Average the positions and normals
-                    let mut avg_pos = Vector3::zeros();
-                    let mut avg_norm = Vector3::zeros();
-                    
-                    for h in &hermites {
-                        avg_pos += h.p;
-                        avg_norm += h.n;
-                    }
-                    
-                    avg_pos /= hermites.len() as f32;
-                    avg_norm = avg_norm.normalize();
-                    
-                    // Store the vertex
-                    let idx = vertex_count;
-                    vertex_count += 1;
-                    
-                    verts.extend_from_slice(&[avg_pos.x, avg_pos.y, avg_pos.z]);
-                    norms.extend_from_slice(&[avg_norm.x, avg_norm.y, avg_norm.z]);
-                    mats.push(0);
-                    
-                    cell_vertex_idx[z][x] = Some(idx);
-                    
-                    // if x < 5 && z < 5 {
-                    //     debug!("Generated vertex at ({}, {}) with {} hermites", x, z, hermites.len());
-                    // }
+
+                // record crossings based on sample_edge result
+                let east_cross  = sample_edge((x, z, f00),    (x + 1, z, f10),    &padded_heightmap, &mut hermites);
+                let south_cross = sample_edge((x, z + 1, f01), (x, z, f00),       &padded_heightmap, &mut hermites);
+
+                // still sample the remaining edges to fill hermites
+                sample_edge((x + 1, z, f10),    (x + 1, z + 1, f11), &padded_heightmap, &mut hermites);
+                sample_edge((x + 1, z + 1, f11), (x, z + 1, f01),    &padded_heightmap, &mut hermites);
+
+                edge_east[z][x]  = east_cross;
+                edge_south[z][x] = south_cross;
+
+                if hermites.is_empty() { continue; }
+                // Average the positions and normals
+                let mut avg_pos = Vector3::zeros();
+                let mut avg_norm = Vector3::zeros();
+                for h in &hermites {
+                    avg_pos += h.p;
+                    avg_norm += h.n;
                 }
+                avg_pos /= hermites.len() as f32;
+                avg_norm = avg_norm.normalize();
+                // Store the vertex
+                let idx = vertex_count;
+                vertex_count += 1;
+                verts.extend_from_slice(&[avg_pos.x, avg_pos.y, avg_pos.z]);
+                norms.extend_from_slice(&[avg_norm.x, avg_norm.y, avg_norm.z]);
+                mats.push(0);
+                cell_vertex_idx[z][x] = Some(idx);
             }
         }
         
-        // Generate triangles for cells with all vertices
-        for z in 0..CHUNK_SIZE-1 {
-            for x in 0..CHUNK_SIZE-1 {
-                // Get vertices for this quad (if they exist)
-                let v00 = cell_vertex_idx[z][x];
-                let v10 = cell_vertex_idx[z][x+1];
-                let v01 = cell_vertex_idx[z+1][x];
-                let v11 = cell_vertex_idx[z+1][x+1];
-                
-                // if x < 5 && z < 5 {
-                //     debug!("Cell ({},{}) vertices: {:?}, {:?}, {:?}, {:?}", x, z, v00, v10, v01, v11);
-                // }
-                
-                // Check if we have enough vertices to make triangles
-                if let (Some(v00), Some(v10), Some(v01), Some(v11)) = (v00, v10, v01, v11) {
-                    // Full quad - make two triangles
-                    idxs.extend_from_slice(&[v00, v01, v10]);
-                    idxs.extend_from_slice(&[v10, v01, v11]);
-                    
-                    // if x < 5 && z < 5 {
-                    //     debug!("Generated triangles for cell ({},{})", x, z);
-                    // }
-                } else {
-                    // Handle partial quads
-                    match (v00, v10, v01, v11) {
-                        (Some(v00), Some(v10), Some(v01), None) => {
-                            idxs.extend_from_slice(&[v00, v01, v10]);
-                            // if x < 5 && z < 5 {
-                            //     debug!("Generated partial triangle for cell ({},{})", x, z);
-                            // }
-                        }
-                        (Some(v00), Some(v10), None, Some(v11)) => {
-                            idxs.extend_from_slice(&[v00, v11, v10]);
-                            // if x < 5 && z < 5 {
-                            //     debug!("Generated partial triangle for cell ({},{})", x, z);
-                            // }
-                        }
-                        (Some(v00), None, Some(v01), Some(v11)) => {
-                            idxs.extend_from_slice(&[v00, v11, v01]);
-                            // if x < 5 && z < 5 {
-                            //     debug!("Generated partial triangle for cell ({},{})", x, z);
-                            // }
-                        }
-                        (None, Some(v10), Some(v01), Some(v11)) => {
-                            idxs.extend_from_slice(&[v10, v11, v01]);
-                            // if x < 5 && z < 5 {
-                            //     debug!("Generated partial triangle for cell ({},{})", x, z);
-                            // }
-                        }
-                        _ => {
-                            debug!("Not enough vertices for cell ({},{})", x, z);
-                        }
+        // PASS 2: per-edge stitching
+        // Stitch quads across east edges
+        for z in 0..(CHUNK_SIZE - 1) {
+            for x in 0..(CHUNK_SIZE - 1) {
+                if edge_east[z][x] {
+                    if let (
+                        Some(v00),
+                        Some(v10),
+                        Some(v01),
+                        Some(v11)
+                    ) = (
+                        cell_vertex_idx[z][x],
+                        cell_vertex_idx[z][x + 1],
+                        cell_vertex_idx[z + 1][x],
+                        cell_vertex_idx[z + 1][x + 1],
+                    ) {
+                        // quad between (z,x)->east and south neighbor: two tris
+                        idxs.extend_from_slice(&[v00, v10, v11]);
+                        idxs.extend_from_slice(&[v00, v11, v01]);
+                    }
+                }
+            }
+        }
+        // Stitch quads across south edges
+        for z in 0..(CHUNK_SIZE - 1) {
+            for x in 0..(CHUNK_SIZE - 1) {
+                if edge_south[z][x] {
+                    if let (
+                        Some(v00),
+                        Some(v10),
+                        Some(v01),
+                        Some(v11)
+                    ) = (
+                        cell_vertex_idx[z][x],
+                        cell_vertex_idx[z][x + 1],
+                        cell_vertex_idx[z + 1][x],
+                        cell_vertex_idx[z + 1][x + 1],
+                    ) {
+                        // quad between (z,x)->south and east neighbor: two tris
+                        idxs.extend_from_slice(&[v00, v01, v11]);
+                        idxs.extend_from_slice(&[v00, v11, v10]);
                     }
                 }
             }
