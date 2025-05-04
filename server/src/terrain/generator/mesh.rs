@@ -130,8 +130,59 @@ impl MeshGenerator {
                 // One material per-vertex
                 mats.extend([0; 4]); // e.g. grass=0
                 
-                // Two triangles (counter-clockwise winding)
-                idxs.extend([base, base+1, base+2, base+1, base+3, base+2]);
+                // Top face (counter-clockwise winding from above)
+                idxs.extend([base, base+2, base+1, base+1, base+2, base+3]);
+
+                // Side and bottom faces
+                // Front (+Z)
+                let side_base = (verts.len() / 3) as u32;
+                verts.extend([local_x,    0.0, local_z + 1.0]);
+                verts.extend([local_x + 1.0, 0.0, local_z + 1.0]);
+                verts.extend([local_x,       y, local_z + 1.0]);
+                verts.extend([local_x + 1.0,   y, local_z + 1.0]);
+                norms.extend(std::iter::repeat([0.0f32, 0.0f32, 1.0f32]).take(4).flatten());
+                mats.extend([0; 4]);
+                idxs.extend([side_base, side_base + 2, side_base + 1, side_base + 1, side_base + 2, side_base + 3]);
+
+                // Back (-Z)
+                let side_base = (verts.len() / 3) as u32;
+                verts.extend([local_x + 1.0, 0.0, local_z]);
+                verts.extend([local_x,       0.0, local_z]);
+                verts.extend([local_x + 1.0,   y, local_z]);
+                verts.extend([local_x,         y, local_z]);
+                norms.extend(std::iter::repeat([0.0f32, 0.0f32, -1.0f32]).take(4).flatten());
+                mats.extend([0; 4]);
+                idxs.extend([side_base, side_base + 2, side_base + 1, side_base + 1, side_base + 2, side_base + 3]);
+
+                // Right (+X)
+                let side_base = (verts.len() / 3) as u32;
+                verts.extend([local_x + 1.0, 0.0, local_z + 1.0]);
+                verts.extend([local_x + 1.0, 0.0, local_z]);
+                verts.extend([local_x + 1.0,   y, local_z + 1.0]);
+                verts.extend([local_x + 1.0,   y, local_z]);
+                norms.extend(std::iter::repeat([1.0f32, 0.0f32, 0.0f32]).take(4).flatten());
+                mats.extend([0; 4]);
+                idxs.extend([side_base, side_base + 2, side_base + 1, side_base + 1, side_base + 2, side_base + 3]);
+
+                // Left (-X)
+                let side_base = (verts.len() / 3) as u32;
+                verts.extend([local_x,    0.0, local_z]);
+                verts.extend([local_x,    0.0, local_z + 1.0]);
+                verts.extend([local_x,      y, local_z]);
+                verts.extend([local_x,      y, local_z + 1.0]);
+                norms.extend(std::iter::repeat([-1.0f32, 0.0f32, 0.0f32]).take(4).flatten());
+                mats.extend([0; 4]);
+                idxs.extend([side_base, side_base + 2, side_base + 1, side_base + 1, side_base + 2, side_base + 3]);
+
+                // Bottom face (y = 0)
+                let bottom_base = (verts.len() / 3) as u32;
+                verts.extend([local_x + 1.0, 0.0, local_z + 1.0]);
+                verts.extend([local_x,       0.0, local_z + 1.0]);
+                verts.extend([local_x + 1.0,   0.0, local_z]);
+                verts.extend([local_x,         0.0, local_z]);
+                norms.extend(std::iter::repeat([0.0f32, -1.0f32, 0.0f32]).take(4).flatten());
+                mats.extend([0; 4]);
+                idxs.extend([bottom_base, bottom_base + 2, bottom_base + 1, bottom_base + 1, bottom_base + 2, bottom_base + 3]);
             }
         }
         

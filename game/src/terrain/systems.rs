@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use bevy::render::mesh::{PrimitiveTopology, Mesh, Indices};
 use bevy::render::render_asset::RenderAssetUsages;
-use bevy::render::view::NoFrustumCulling;
 
 use bevy_spacetimedb::{
     StdbConnectedEvent, StdbConnection,
