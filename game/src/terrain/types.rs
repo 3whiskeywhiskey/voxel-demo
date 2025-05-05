@@ -24,7 +24,7 @@ impl Default for MinimapConfig {
 pub struct MinimapImage(pub Handle<Image>);
 
 // reuse your HeightmapChunk and ChunkCoords from the generated stdb module
-pub use crate::stdb::{Chunk, ChunkCoords};
+pub use crate::stdb::{ChunkVertex, ChunkMesh, xz_coords_type::XzCoords as XZCoords};
 
 #[derive(Component)]
 pub struct MinimapUi(pub Handle<Image>);

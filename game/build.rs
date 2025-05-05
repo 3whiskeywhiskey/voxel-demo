@@ -25,13 +25,13 @@ fn main() {
     // this hack is necessary because bevy_spacetimedb expects the primary key to be
     // an `Eq` and `Hash` type, but the generated `ChunkCoords` type is not, even though
     // those traits are set in the server code.
-    let file = format!("{}/chunk_coords_type.rs", out_dir);
+    let file = format!("{}/xz_coords_type.rs", out_dir);
     let src  = std::fs::read_to_string(&file);
-    let patched = src.expect("failed to read chunk_coords_type.rs").replace(
+    let patched = src.expect("failed to read xz_coords_type.rs").replace(
         "#[derive(__lib::ser::Serialize, __lib::de::Deserialize, Clone, PartialEq, Debug)]",
         "#[derive(__lib::ser::Serialize, __lib::de::Deserialize, Clone, PartialEq, Debug, Eq, Hash)]",
     );
-    std::fs::write(&file, patched).expect("failed to write chunk_coords_type.rs");
+    std::fs::write(&file, patched).expect("failed to write xz_coords_type.rs");
 
     if !status.success() {
         panic!("spacetime codegen failed");

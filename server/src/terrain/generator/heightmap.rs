@@ -1,6 +1,6 @@
 use noise::{NoiseFn, Perlin};
 
-use crate::terrain::coords::{ChunkCoords, CHUNK_SIZE};
+use crate::terrain::coords::{XZCoords, CHUNK_SIZE};
 
 const HEIGHT_RANGE: f32 = 32.0;
 
@@ -11,16 +11,28 @@ pub struct PaddedHeightmap {
 }
 
 impl PaddedHeightmap {
-    pub fn new(data: Vec<f32>, chunk_size: usize) -> Self {
-        assert!(data.len() == (chunk_size + 2) * (chunk_size + 2));
-        Self { data, dim: chunk_size + 2 }
+    pub fn new(data: Vec<f32>, chunk_size: i32) -> Self {
+        assert!(data.len() == ((chunk_size + 3) * (chunk_size + 3)) as usize);
+        Self { data, dim: (chunk_size + 3) as usize }
     }
 
-    pub fn get(&self, x: usize, z: usize) -> f32 {
+    pub fn get(&self, x: isize, z: isize) -> f32 {
         // map logical coord x,z to padded indices safely
-        let u = x.saturating_add(1).min(self.dim - 1);
-        let v = z.saturating_add(1).min(self.dim - 1);
+        let u = (x.saturating_add(1).min(self.dim as isize - 1)) as usize;
+        let v = (z.saturating_add(1).min(self.dim as isize - 1)) as usize;
         self.data[v * self.dim + u]
+    }
+
+    pub fn chunk_only(&self) -> Vec<f32> {
+        // Extract the CHUNK_SIZE x CHUNK_SIZE interior from the padded (dim x dim) data
+        let cs = self.dim - 2; // CHUNK_SIZE
+        let mut out = Vec::with_capacity(cs * cs);
+        // Iterate over each interior row (skip first, take cs rows)
+        for row in self.data.chunks(self.dim).skip(1).take(cs) {
+            // each row is length 'dim'; we want columns 1..dim-1
+            out.extend_from_slice(&row[1..(self.dim - 1)]);
+        }
+        out
     }
 }
 
@@ -43,8 +55,8 @@ impl HeightmapGenerator {
         }
     }
 
-    pub fn generate_chunk(&self, coord: ChunkCoords) -> Vec<f32> {
-        let mut heights = Vec::with_capacity(CHUNK_SIZE * CHUNK_SIZE);
+    pub fn generate_chunk(&self, coord: XZCoords) -> Vec<f32> {
+        let mut heights = Vec::with_capacity(CHUNK_SIZE as usize * CHUNK_SIZE as usize);
         
         for z in 0..CHUNK_SIZE as i32 {
             for x in 0..CHUNK_SIZE as i32 {
@@ -59,17 +71,15 @@ impl HeightmapGenerator {
 
 
     // generates a heightmap that is a chunk but one block larger on all sides
+    // this generates the heights of the CORNERS, so it's 33x33 chunk, so 35x35 padded
     // this helps the mesh generator blend between chunks
-    pub fn generate_padded_heightmap(&self, coord: ChunkCoords) -> PaddedHeightmap {
-        let mut heights = Vec::with_capacity(CHUNK_SIZE * CHUNK_SIZE);
+    pub fn generate_padded_heightmap(&self, coord: XZCoords) -> PaddedHeightmap {
+        let mut heights = Vec::with_capacity(CHUNK_SIZE as usize * CHUNK_SIZE as usize);
 
-        for z in -1..CHUNK_SIZE as i32 +1 {
-            for x in -1..CHUNK_SIZE as i32 +1 {
+        for z in -1..=CHUNK_SIZE +1 {
+            for x in -1..=CHUNK_SIZE +1 {
                 let world_pos = coord.to_world_pos(x, z);
                 let height = self.sample_height(world_pos.x as f64, world_pos.z as f64);
-                // if x < 5 && z < 5 {
-                //     debug!("Generated height at world ({}, {}): {}", world_pos.x, world_pos.z, height);
-                // }
                 heights.push(height);
             }
         }

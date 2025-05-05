@@ -5,12 +5,12 @@ use spacetimedb::SpacetimeType;
 /// Chunk indices on the XZ plane.
 #[derive(SpacetimeType)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ChunkCoords {
+pub struct XZCoords {
     pub x: i32,
     pub z: i32,
 }
 
-impl ChunkCoords {
+impl XZCoords {
     pub fn to_world_pos(&self, local_x: i32, local_z: i32) -> Vec3 {
         Vec3 {
             x: (self.x * CHUNK_SIZE as i32 + local_x) as f32,
@@ -19,6 +19,7 @@ impl ChunkCoords {
         }
     }
 }
+
 
 /// A 3D vector.
 #[derive(SpacetimeType)]
@@ -53,7 +54,8 @@ pub struct DensityDelta {
 }
 
 /// Which material (grass, dirt, stone…) a vertex/face belongs to.
-pub type MaterialId = u8;
+pub type MaterialId = u32;
 
 /// How many voxels per edge of a chunk.
-pub const CHUNK_SIZE: usize = 32;
+pub const CHUNK_SIZE: i32 = 32;
+pub const SECTION_SIZE: i32 = 32;

@@ -3,13 +3,13 @@ use bevy::prelude::*;
 use std::time::Duration;
 use bevy::prelude::Timer;
 use bevy::prelude::TimerMode;
-use crate::terrain::types::ChunkCoords;
+use crate::terrain::types::XZCoords;
 
 #[derive(Resource, Default)]
 pub struct DirtyChunks {
-    set: HashSet<ChunkCoords>,
+    set: HashSet<XZCoords>,
     radius: u8,
-    retries: Vec<(ChunkCoords, Timer)>,
+    retries: Vec<(XZCoords, Timer)>,
 }
 
 impl DirtyChunks {
@@ -22,24 +22,24 @@ impl DirtyChunks {
     }
 
     /// Mark a single chunk dirty
-    pub fn mark_dirty(&mut self, coord: ChunkCoords) {
+    pub fn mark_dirty(&mut self, coord: XZCoords) {
         // info!("Marking chunk {:?} as dirty", coord);
         self.set.insert(coord);
     }
 
     /// Populate the set with *all* coords in the square around `center`
-    pub fn populate_radius(&mut self, center: ChunkCoords) {
+    pub fn populate_radius(&mut self, center: XZCoords) {
         self.set.clear();
         let r = self.radius;
         for x in (center.x - r as i32)..=(center.x + r as i32) {
             for z in (center.z - r as i32)..=(center.z + r as i32) {
-                self.mark_dirty(ChunkCoords { x, z });
+                self.mark_dirty(XZCoords { x, z });
             }
         }
     }
 
     /// Pop *one* dirty coord (you can also drain the whole set if you prefer)
-    pub fn pop_dirty(&mut self) -> Option<ChunkCoords> {
+    pub fn pop_dirty(&mut self) -> Option<XZCoords> {
         self.set.iter().cloned().next().map(|coord| {
             self.set.remove(&coord);
             coord
@@ -47,12 +47,12 @@ impl DirtyChunks {
     }
 
     // is dirty
-    pub fn is_dirty(&self, coord: ChunkCoords) -> bool {
+    pub fn is_dirty(&self, coord: XZCoords) -> bool {
         self.set.contains(&coord)
     }
 
     // pop if dirty
-    pub fn pop_if_dirty(&mut self, coord: ChunkCoords) -> Option<ChunkCoords> {
+    pub fn pop_if_dirty(&mut self, coord: XZCoords) -> Option<XZCoords> {
         if self.set.contains(&coord) {
             self.set.remove(&coord);
             Some(coord)
@@ -67,7 +67,7 @@ impl DirtyChunks {
     }
 
     /// Schedule a retry for a coord after a delay
-    pub fn schedule_retry(&mut self, coord: ChunkCoords, delay_secs: f32) {
+    pub fn schedule_retry(&mut self, coord: XZCoords, delay_secs: f32) {
         self.retries.push((
             coord,
             Timer::from_seconds(delay_secs, TimerMode::Once),

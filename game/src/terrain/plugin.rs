@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_spacetimedb::{InsertEvent, UpdateEvent};
 use crate::terrain::{
-    types::Chunk,
+    types::{ChunkVertex, ChunkMesh},
     ui::setup_minimap_ui,
     types::{MinimapConfig, MinimapImage},
     dirtychunks::{DirtyChunks, dirtychunks_tick_system},
@@ -26,8 +26,10 @@ impl Plugin for TerrainPlugin {
         .init_resource::<TerrainSubscription>()
         .init_resource::<MinimapImage>()
 
-        .add_event::<InsertEvent<Chunk>>()
-        .add_event::<UpdateEvent<Chunk>>()
+        .add_event::<InsertEvent<ChunkVertex>>()
+        .add_event::<UpdateEvent<ChunkVertex>>()
+        .add_event::<InsertEvent<ChunkMesh>>()
+        .add_event::<UpdateEvent<ChunkMesh>>()
 
         // UI setup
         .add_systems(Startup, (setup_minimap_ui, setup_minimap_gradient))

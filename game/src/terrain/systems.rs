@@ -16,8 +16,8 @@ use spacetimedb_sdk::{
 use crate::stdb::{
     SubscriptionHandle, DbConnection,
     on_chunk_requested,
-    chunk_table::ChunkTableAccess,
-    mesh_table::MeshTableAccess,
+    chunk_vertex_table::ChunkVertexTableAccess,
+    chunk_mesh_table::ChunkMeshTableAccess,
     Mesh as TerrainMesh,
 };
 
@@ -25,7 +25,9 @@ use colorgrad::{CustomGradient, Gradient};
 
 use crate::terrain::{
     types::{
-        Chunk, ChunkCoords, MinimapUi, MinimapConfig
+        XZCoords,
+        ChunkVertex, ChunkMesh, 
+        MinimapUi, MinimapConfig
     },
     dirtychunks::DirtyChunks,
 };
@@ -42,9 +44,9 @@ const CHUNK_SIZE: i32 = 32;
 /// Holds the current heightmap subscription handle
 #[derive(Resource, Default)]
 pub struct TerrainSubscription {
-    chunk_handle: Option<SubscriptionHandle>,
+    vertex_handle: Option<SubscriptionHandle>,
     mesh_handle: Option<SubscriptionHandle>,
-    last_center: Option<ChunkCoords>,
+    last_center: Option<XZCoords>,
 }
 
 /// System: subscribe to heightmap_chunk filtered by player position
@@ -62,7 +64,7 @@ pub fn terrain_subscription_system(
     if let Ok(transform) = cam_q.single() {
         let cx = (transform.translation.x / CHUNK_SIZE as f32).floor() as i32;
         let cz = (transform.translation.z / CHUNK_SIZE as f32).floor() as i32;
-        let center = ChunkCoords { x: cx, z: cz };
+        let center = XZCoords { x: cx, z: cz };
 
         if reconnect {
             // we don't want to do this on chunk change, only on connection
@@ -77,38 +79,36 @@ pub fn terrain_subscription_system(
             dirty_chunks.populate_radius(center.clone());
 
             // compute bounds
-            let minimap_radius = minimap_config.radius as i32;
+            let minimap_radius = 3; //minimap_config.radius as i32;
             let (min_x, max_x) = (cx - minimap_radius, cx + minimap_radius);
             let (min_z, max_z) = (cz - minimap_radius, cz + minimap_radius);
             let predicate = format!(
-                "WHERE chunk.chunk_x >= {} AND chunk.chunk_x <= {} AND chunk.chunk_z >= {} AND chunk.chunk_z <= {}",
+                "WHERE chunk_vertex.grid_x >= {} AND chunk_vertex.grid_x <= {} AND chunk_vertex.grid_z >= {} AND chunk_vertex.grid_z <= {}",
                 min_x, max_x, min_z, max_z
             );
             // subscribe
-            let chunk_handle = stdb
+            let vertex_handle = stdb
                 .subscribe()
                 .on_applied(|ctx| {
-                    info!("Subscribed to terrain: {} chunks", ctx.db.chunk().count());
+                    info!("Subscribed to terrain: {} chunks", ctx.db.chunk_vertex().count());
                 })
                 .on_error(|_, e| error!("Terrain sub error: {}", e))
-                .subscribe(format!("SELECT * FROM chunk {}", predicate));
+                .subscribe(format!("SELECT * FROM chunk_vertex {}", predicate));
 
-            let (min_x, max_x) = (cx - SUB_RADIUS, cx + SUB_RADIUS);
-            let (min_z, max_z) = (cz - SUB_RADIUS, cz + SUB_RADIUS);
             let predicate = format!(
-                "WHERE chunk.chunk_x >= {} AND chunk.chunk_x <= {} AND chunk.chunk_z >= {} AND chunk.chunk_z <= {}",
+                "WHERE chunk_mesh.grid_x >= {} AND chunk_mesh.grid_x <= {} AND chunk_mesh.grid_z >= {} AND chunk_mesh.grid_z <= {}",
                 min_x, max_x, min_z, max_z
             );
             let mesh_handle = stdb
                 .subscribe()
                 .on_applied(|ctx| {
-                    info!("Subscribed to terrain meshes: {}", ctx.db.mesh().count());
+                    info!("Subscribed to terrain meshes: {}", ctx.db.chunk_mesh().count());
                 })
                 .on_error(|_, e| error!("Terrain sub error: {}", e))
-                .subscribe(format!("SELECT mesh.* FROM mesh JOIN chunk ON mesh.id = chunk.mesh_id {}", predicate));
+                .subscribe(format!("SELECT * FROM chunk_mesh {}", predicate));
 
             
-            if let Some(h) = sub.chunk_handle.take() {
+            if let Some(h) = sub.vertex_handle.take() {
                 let _ = h.unsubscribe();
             }
 
@@ -117,7 +117,7 @@ pub fn terrain_subscription_system(
             }
 
             // store state
-            sub.chunk_handle = Some(chunk_handle);
+            sub.vertex_handle = Some(vertex_handle);
             sub.mesh_handle = Some(mesh_handle);
             sub.last_center = Some(center);
         }
@@ -125,22 +125,22 @@ pub fn terrain_subscription_system(
 }
 
 pub fn on_chunk_insert(
-    mut events: ReadInsertEvent<Chunk>,
+    mut events: ReadInsertEvent<ChunkVertex>,
     mut dirty_chunks: ResMut<DirtyChunks>,
 ) {
     for event in events.read() {
-        info!("Chunk inserted: {:?}   Marking dirty", event.row.coord);
-        dirty_chunks.mark_dirty(event.row.coord.clone());
+        info!("Chunk inserted: {:?}   Marking dirty", event.row.grid);
+        dirty_chunks.mark_dirty(event.row.grid.clone());
     }
 }
 
 pub fn on_chunk_update(
-    mut events: ReadUpdateEvent<Chunk>,
+    mut events: ReadUpdateEvent<ChunkVertex>,
     mut dirty_chunks: ResMut<DirtyChunks>,
 ) {
     for event in events.read() {
-        info!("Chunk updated: {:?}   Marking dirty", event.new.coord);
-        dirty_chunks.mark_dirty(event.new.coord.clone());
+        info!("Chunk updated: {:?}   Marking dirty", event.new.grid);
+        dirty_chunks.mark_dirty(event.new.grid.clone());
     }
 }
 
@@ -187,17 +187,18 @@ pub fn render_terrain(
     let tex_size = minimap_config.texture_size;
 
     // Determine center chunk
-    let center = sub.last_center.clone().unwrap_or(ChunkCoords { x: 0, z: 0 });
+    let center = sub.last_center.clone().unwrap_or(XZCoords { x: 0, z: 0 });
 
-    let mesh_table = stdb.db().mesh();
-    let chunk_table = stdb.db().chunk();
+    let mesh_table = stdb.db().chunk_mesh();
+    let vertex_table = stdb.db().chunk_vertex();
 
     while let Some(coords) = dirty_chunks.pop_dirty() {
-        if let Some(chunk) = chunk_table.iter().find(|row| row.coord == coords) {
+        if let Some(chunk_vertex) = vertex_table.iter().find(|row| row.grid == coords) {
             info!("Chunk found: {:?}", coords);
-            match mesh_table.id().find(&chunk.mesh_id) {
+            let heightmap = chunk_vertex.heightmap.clone();
+            match mesh_table.iter().find(|row| row.grid == coords) {
                 Some(chunk_mesh) => {
-                    render_chunk(&mut commands, &mut meshes, &mut materials, chunk_mesh, coords.clone());
+                    render_chunk(&mut commands, &mut meshes, &mut materials, chunk_vertex, chunk_mesh, coords.clone());
                 }
                 None => {
                     dirty_chunks.schedule_retry(coords.clone(), 1.0);
@@ -206,7 +207,7 @@ pub fn render_terrain(
             }
 
             // Generate RGBA bytes functionally, then write each row in one go.
-            let pixel_bytes: Vec<u8> = chunk.heights
+            let pixel_bytes: Vec<u8> = heightmap
                 .iter()
                 .flat_map(|&height| {
                     let normalized = (height / HEIGHT_RANGE).clamp(0.0, 1.0) as f64;
@@ -256,19 +257,20 @@ fn render_chunk(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
-    chunk_mesh: TerrainMesh,
-    coords: ChunkCoords,
+    chunk_vertex: ChunkVertex,
+    chunk_mesh: ChunkMesh,
+    coords: XZCoords,
 ) {
-    info!("Mesh found: {:?}", chunk_mesh.id);
+    info!("Mesh found: {:?}", chunk_mesh.grid);
     let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD);
-    let positions = chunk_mesh.vertices
+    let positions = chunk_vertex.vertices
         .chunks_exact(3)
         .map(|c| [c[0], c[1], c[2]])
         .collect::<Vec<_>>();
     
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
 
-    let normals = chunk_mesh.normals
+    let normals = chunk_vertex.normals
         .chunks_exact(3)
         .map(|c| [c[0], c[1], c[2]])
         .collect::<Vec<_>>();
@@ -290,11 +292,11 @@ fn render_chunk(
     });
 
     // Calculate the chunk's world position
-    let chunk_world_x = coords.x as f32 * CHUNK_SIZE as f32;
-    let chunk_world_z = coords.z as f32 * CHUNK_SIZE as f32;
-    let transform = Transform::from_xyz(chunk_world_x, 0.0, chunk_world_z);
+    // let chunk_world_x = coords.x as f32 * CHUNK_SIZE as f32;
+    // let chunk_world_z = coords.z as f32 * CHUNK_SIZE as f32;
+    // let transform = Transform::from_xyz(chunk_world_x, 0.0, chunk_world_z);
 
-    info!("Spawning mesh {:?} at {:?}", mesh_handle, transform.translation);
+    // info!("Spawning mesh {:?} at {:?}", mesh_handle, transform.translation);
 
     // --- Explicit AABB for Culling Debug ---
     // let chunk_size_half = CHUNK_SIZE as f32 / 2.0;
@@ -309,7 +311,8 @@ fn render_chunk(
     commands.spawn((
         Mesh3d(mesh_handle.clone()),
         MeshMaterial3d(material_handle.clone()),
-        transform, // Use calculated transform
+        // transform, // Use calculated transform
+        Transform::IDENTITY,
         Name::new(format!("TerrainChunk_{}_{}", coords.x, coords.z)),
     ));
 }
