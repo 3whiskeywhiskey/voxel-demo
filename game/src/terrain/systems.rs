@@ -35,7 +35,7 @@ use crate::terrain::{
 #[derive(Resource)]
 pub struct TerrainGradient(pub Gradient);
 
-const HEIGHT_RANGE: f32 = 64.0;
+const HEIGHT_RANGE: f32 = 32.0;
 
 /// Radius in chunks for subscribing
 const SUB_RADIUS: i32 = 3;
@@ -210,7 +210,7 @@ pub fn render_terrain(
             let pixel_bytes: Vec<u8> = heightmap
                 .iter()
                 .flat_map(|&height| {
-                    let normalized = (height / HEIGHT_RANGE).clamp(0.0, 1.0) as f64;
+                    let normalized = ((height+HEIGHT_RANGE) / HEIGHT_RANGE).clamp(0.0, 1.0) as f64;
                     let color = gradient_res.0.at(normalized);
                     // Expand into an array, which IntoIterator flattens
                     [

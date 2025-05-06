@@ -17,4 +17,4 @@ Cargo.lock
 /.spacetime
 
 # ignore generated code
-*/src/stdb
+#*/src/stdb
