@@ -4,8 +4,8 @@ use bevy::{
     window::CursorGrabMode,
     core_pipeline::Skybox,
     ui::{UiRect, PositionType, JustifyContent},
+    pbr::{Atmosphere, AtmosphereSettings},
 };
-use bevy::pbr::Atmosphere;
 
 pub struct PlayerPlugin;
 
@@ -67,6 +67,11 @@ fn setup_player(mut commands: Commands, asset_server: Res<AssetServer>) {
         Transform::from_xyz(0.0, 60.0, 0.0).looking_at(Vec3::new(10.0, 60.0, -10.0), Vec3::Y),
         GlobalTransform::default(),
         Atmosphere::EARTH,
+        AtmosphereSettings {
+            aerial_view_lut_max_distance: 3.2e3,
+            scene_units_to_m: 1.0,
+            ..Default::default()
+        },
         Skybox {
             image: skybox_handle.clone(),
             brightness: 500.0,

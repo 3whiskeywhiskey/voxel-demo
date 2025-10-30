@@ -1,10 +1,11 @@
 use bevy::prelude::*;
 
 #[allow(unused_imports)]
+use bevy::pbr::{light_consts::lux, Atmosphere, AtmosphereSettings, CascadeShadowConfigBuilder};
+
 use bevy_spacetimedb::{
-    ReadInsertEvent, ReadUpdateEvent, ReadDeleteEvent,
-    ReadReducerEvent, ReducerResultEvent, StdbConnectedEvent, StdbConnection,
-    StdbConnectionErrorEvent, StdbDisconnectedEvent, StdbPlugin, register_reducers, tables,
+    StdbConnectedEvent, StdbConnection,
+    StdbConnectionErrorEvent, StdbDisconnectedEvent, StdbPlugin,
 };
 
 mod stdb;
@@ -104,7 +105,7 @@ fn setup(
     // Directional "sun" light - spawn with components
     commands.spawn((
         DirectionalLight {
-            illuminance: 10000.0,
+            illuminance: lux::AMBIENT_DAYLIGHT,
             shadows_enabled: true,
             ..default()
         },
